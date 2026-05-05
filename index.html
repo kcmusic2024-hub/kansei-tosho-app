@@ -512,7 +512,9 @@
         </div>
         <span id="geminiKeyStatus" style="font-size:0.75rem;margin-top:4px;display:block;min-height:16px;"></span>
       </div>
-      <p style="font-size:0.72rem;color:#aaa;margin:0;">未設定の場合はコントラスト強調のみで清書します。キーはブラウザに保存されます。</p>
+      <button class="btn btn-outline" onclick="checkGeminiModels()" style="font-size:0.75rem;padding:7px 12px;margin-top:4px;">利用可能なモデルを確認</button>
+      <span id="geminiModelList" style="font-size:0.72rem;color:#555;margin-top:6px;display:block;white-space:pre-wrap;word-break:break-all;"></span>
+      <p style="font-size:0.72rem;color:#aaa;margin-top:6px;">キーはブラウザに保存されます。モデル確認で使えるモデル名を確認してください。</p>
     </div>
 
     <div class="card">
@@ -738,10 +740,43 @@ function saveGeminiKey() {
   setTimeout(function () { st.textContent = ''; }, 2000);
 }
 
+/* 利用可能なGeminiモデルを確認して表示 */
+async function checkGeminiModels() {
+  if (!GEMINI_KEY) { alert('先にAPIキーを保存してください。'); return; }
+  var el = document.getElementById('geminiModelList');
+  el.textContent = '確認中...';
+  try {
+    /* v1 と v1beta の両方を確認 */
+    var results = [];
+    for (var ver of ['v1', 'v1beta']) {
+      var res  = await fetch('https://generativelanguage.googleapis.com/'+ver+'/models?key=' + GEMINI_KEY);
+      var json = await res.json();
+      if (!res.ok) continue;
+      (json.models || []).forEach(function (m) {
+        if (m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent')) {
+          results.push('[' + ver + '] ' + m.name.replace('models/', ''));
+        }
+      });
+    }
+    el.textContent = results.length ? results.join('\n') : '該当するモデルが見つかりませんでした';
+    console.log('[Gemini] 利用可能モデル:', results);
+  } catch (e) {
+    el.textContent = 'エラー: ' + e.message;
+  }
+}
+
 /* Gemini Vision で平面図を解析し、部屋情報JSON を返す（非同期） */
 async function analyzeFloorWithGemini(base64Data, mimeType) {
-  var url  = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=' + GEMINI_KEY;
-  var prompt = 'この手書き平面図の各部屋・スペースを分析してください。\n' +
+  /* APIバージョンとモデル名の組み合わせを優先順に試す */
+  var candidates = [
+    { ver: 'v1',     model: 'gemini-2.0-flash' },
+    { ver: 'v1',     model: 'gemini-2.0-flash-exp' },
+    { ver: 'v1',     model: 'gemini-1.5-flash' },
+    { ver: 'v1beta', model: 'gemini-2.0-flash' },
+    { ver: 'v1beta', model: 'gemini-1.5-flash' },
+  ];
+  var prompt =
+    'この手書き平面図の各部屋・スペースを分析してください。\n' +
     '以下のJSON形式のみを出力してください。コードブロック（```）や説明文は不要です。\n\n' +
     '{"rooms":[{"name":"部屋名","x":数値,"y":数値,"w":数値,"h":数値}]}\n\n' +
     'ルール：x,yは左上原点からの相対位置（グリッド単位）、w,hは幅・高さ（グリッド単位）。' +
@@ -753,17 +788,29 @@ async function analyzeFloorWithGemini(base64Data, mimeType) {
       { inlineData: { mimeType: mimeType, data: base64Data } }
     ]}]
   };
-  var res  = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  var json = await res.json();
-  if (!res.ok) throw new Error((json.error && json.error.message) || 'Gemini APIエラー');
-  var text = json.candidates && json.candidates[0] && json.candidates[0].content &&
-             json.candidates[0].content.parts && json.candidates[0].content.parts[0].text;
-  if (!text) throw new Error('Geminiからの応答が取得できませんでした');
-  /* コードブロックを除去してJSONを抽出 */
-  text = text.replace(/```[a-z]*\n?/g, '').replace(/```/g, '').trim();
-  var m = text.match(/\{[\s\S]*\}/);
-  if (!m) throw new Error('JSON形式の応答が得られませんでした');
-  return JSON.parse(m[0]);
+
+  var lastErr = '試したモデルが全て失敗しました';
+  for (var i = 0; i < candidates.length; i++) {
+    var c   = candidates[i];
+    var url = 'https://generativelanguage.googleapis.com/' + c.ver + '/models/' + c.model + ':generateContent?key=' + GEMINI_KEY;
+    try {
+      var res  = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      var json = await res.json();
+      console.log('[Gemini] ' + c.ver + '/' + c.model + ' → status:', res.status);
+      if (!res.ok) { lastErr = (json.error && json.error.message) || ('HTTP ' + res.status); continue; }
+      var text = json.candidates && json.candidates[0] && json.candidates[0].content &&
+                 json.candidates[0].content.parts && json.candidates[0].content.parts[0].text;
+      if (!text) { lastErr = '応答にテキストが含まれていません'; continue; }
+      text = text.replace(/```[a-z]*\n?/g, '').replace(/```/g, '').trim();
+      var m = text.match(/\{[\s\S]*\}/);
+      if (!m) { lastErr = 'JSON形式の応答が得られませんでした'; continue; }
+      console.log('[Gemini] 成功:', c.ver + '/' + c.model);
+      return JSON.parse(m[0]);
+    } catch (e) {
+      lastErr = e.message;
+    }
+  }
+  throw new Error(lastErr);
 }
 
 /* Canvas APIで整った建築平面図を描画する */
