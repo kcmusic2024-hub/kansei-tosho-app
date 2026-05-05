@@ -523,7 +523,9 @@
         <div class="drop-text">手書き図面を選択またはドロップ</div>
         <div class="drop-sub">JPG・PNG・GIF に対応</div>
       </div>
-      <div class="drop-note">アップロードした図面を取り込み後にプレビューします。</div>
+      <!-- アップロードした手書き画像の表示エリア -->
+      <img class="floor-uploaded-img" id="floorOriginalImg" alt="手書き概略図">
+      <div class="drop-note">アップロードした手書き図面をGeminiで清書し、清書後のプレビューに表示します。</div>
       <div class="floor-actions">
         <label class="btn btn-red" for="floorFileInput" style="cursor:pointer;">📁 画像を変更</label>
         <button class="btn btn-outline" onclick="clearFloor()">🗑 クリア</button>
@@ -545,7 +547,11 @@
           </div>
           <div class="seisho-empty" id="seishoEmpty">
             <span class="icon">🗺️</span>
-            手書き概略図をアップロードすると<br>ここにプレビューが表示されます
+            手書き概略図をアップロードすると<br>清書画像がここに表示されます
+          </div>
+          <div class="seisho-empty" id="seishoNoKey" style="display:none;">
+            <span class="icon">🔑</span>
+            Gemini APIキーを設定すると<br>清書画像がここに表示されます
           </div>
           <canvas id="floorCanvas" style="display:none; width:100%;"></canvas>
         </div>
@@ -772,54 +778,77 @@ function loadFloor(evt) {
   if (!file) return;
   var reader = new FileReader();
   reader.onload = function (e) {
-    var img = new Image();
-    img.onload = function () {
-      /* まず元画像をcanvasに描画して表示 */
-      var canvas = document.getElementById('floorCanvas');
-      canvas.width  = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      canvas.getContext('2d').drawImage(img, 0, 0);
-      document.getElementById('dropZone').style.display = 'none';
-      document.getElementById('seishoEmpty').style.display = 'none';
-      canvas.style.display = 'block';
-      floorLoaded = true;
-      syncFloorInfo();
+    /* 手書き画像を取り込みエリアに表示し、ドロップゾーンを隠す */
+    var origImg = document.getElementById('floorOriginalImg');
+    origImg.src = e.target.result;
+    origImg.style.display = 'block';
+    document.getElementById('dropZone').style.display = 'none';
+    floorLoaded = true;
+    syncFloorInfo();
 
-      /* APIキーがあればGeminiで清書 */
-      if (GEMINI_KEY) {
-        var base64 = e.target.result.split(',')[1];
-        var mimeType = file.type || 'image/jpeg';
-        var loading = document.getElementById('seishoLoading');
-        loading.classList.add('active');
-        callGeminiSeisho(base64, mimeType).then(function (dataUrl) {
-          loading.classList.remove('active');
-          if (dataUrl) {
-            var cleanImg = new Image();
-            cleanImg.onload = function () {
-              canvas.width  = cleanImg.naturalWidth;
-              canvas.height = cleanImg.naturalHeight;
-              canvas.getContext('2d').drawImage(cleanImg, 0, 0);
-            };
-            cleanImg.src = dataUrl;
-          }
-        }).catch(function (err) {
-          loading.classList.remove('active');
-          alert('Gemini清書エラー: ' + err.message + '\n\n元の画像を表示します。');
-        });
+    var canvas  = document.getElementById('floorCanvas');
+    var loading = document.getElementById('seishoLoading');
+    var empty   = document.getElementById('seishoEmpty');
+    var noKey   = document.getElementById('seishoNoKey');
+
+    if (!GEMINI_KEY) {
+      /* APIキー未設定：出力用に元画像をcanvasへ描いておき、プレビューにはメッセージ表示 */
+      var tmpImg = new Image();
+      tmpImg.onload = function () {
+        canvas.width  = tmpImg.naturalWidth;
+        canvas.height = tmpImg.naturalHeight;
+        canvas.getContext('2d').drawImage(tmpImg, 0, 0);
+      };
+      tmpImg.src = e.target.result;
+      empty.style.display = 'none';
+      noKey.style.display  = '';
+      canvas.style.display = 'none';
+      return;
+    }
+
+    /* APIキーあり：Geminiで清書した画像をプレビューに表示 */
+    empty.style.display  = 'none';
+    noKey.style.display  = 'none';
+    canvas.style.display = 'none';
+    loading.classList.add('active');
+
+    var base64   = e.target.result.split(',')[1];
+    var mimeType = file.type || 'image/jpeg';
+    callGeminiSeisho(base64, mimeType).then(function (dataUrl) {
+      loading.classList.remove('active');
+      if (dataUrl) {
+        var cleanImg = new Image();
+        cleanImg.onload = function () {
+          canvas.width  = cleanImg.naturalWidth;
+          canvas.height = cleanImg.naturalHeight;
+          canvas.getContext('2d').drawImage(cleanImg, 0, 0);
+          canvas.style.display = 'block';
+        };
+        cleanImg.src = dataUrl;
       }
-    };
-    img.src = e.target.result;
+    }).catch(function (err) {
+      loading.classList.remove('active');
+      alert('Gemini清書エラー: ' + err.message);
+      empty.style.display = '';
+    });
   };
   reader.readAsDataURL(file);
 }
 
 function clearFloor() {
+  /* 手書き画像エリアをリセット */
+  var origImg = document.getElementById('floorOriginalImg');
+  origImg.src = '';
+  origImg.style.display = 'none';
+  document.getElementById('dropZone').style.display = '';
+
+  /* 清書プレビューをリセット */
   var canvas = document.getElementById('floorCanvas');
   canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
   canvas.style.display = 'none';
-  document.getElementById('dropZone').style.display = '';
-  document.getElementById('seishoEmpty').style.display = '';
   document.getElementById('seishoLoading').classList.remove('active');
+  document.getElementById('seishoEmpty').style.display = '';
+  document.getElementById('seishoNoKey').style.display = 'none';
   document.getElementById('floorFileInput').value = '';
   floorLoaded = false;
 }
