@@ -894,6 +894,19 @@ function saveAsExcel(d, base) {
   );
 }
 
+/* 現地写真収集（src + ラベル名） */
+function collectPhotos() {
+  var photos = [];
+  document.querySelectorAll('#photoGrid .photo-card').forEach(function (card) {
+    var img    = card.querySelector('img.photo-img');
+    var nameEl = card.querySelector('.photo-name-text');
+    if (img && img.src && img.src.indexOf('data:') === 0) {
+      photos.push({ src: img.src, name: nameEl ? nameEl.textContent.trim() : '' });
+    }
+  });
+  return photos;
+}
+
 /* Blob ダウンロード共通処理 */
 function dlBlob(blob, filename) {
   var url = URL.createObjectURL(blob);
@@ -936,6 +949,23 @@ function saveAsPPT(d, base) {
     slide2.addImage({ data: imgData, x: 0.5, y: 1.3, w: 9, h: 5 });
   }
 
+  /* 現地写真スライド（4枚/スライド） */
+  var photos = collectPhotos();
+  var pPositions = [
+    { x: 0.2, y: 0.7 }, { x: 6.8, y: 0.7 },
+    { x: 0.2, y: 3.9 }, { x: 6.8, y: 3.9 }
+  ];
+  for (var pi = 0; pi < photos.length; pi += 4) {
+    var ps = pptx.addSlide();
+    ps.addText('現地写真', { x: 0.2, y: 0.1, w: '90%', h: 0.5, fontSize: 16, bold: true, color: 'C0392B' });
+    for (var pj = 0; pj < 4 && (pi + pj) < photos.length; pj++) {
+      var ph  = photos[pi + pj];
+      var pos = pPositions[pj];
+      try { ps.addImage({ data: ph.src, x: pos.x, y: pos.y, w: 6.1, h: 2.7 }); } catch (e) {}
+      ps.addText(ph.name, { x: pos.x, y: pos.y + 2.75, w: 6.1, h: 0.25, fontSize: 9, color: '555555', align: 'center' });
+    }
+  }
+
   pptx.write('blob').then(function (blob) {
     dlBlob(blob, base + '.pptx');
   });
@@ -961,10 +991,22 @@ function saveAsWord(d, base) {
   html += '<h2>機器設置スペース</h2><table>';
   html += wtr('設置スペース', d.space) + wtr('設置不可理由', d.ngreason || '—') + wtr('備考', d.remarks || '—');
   html += '</table>';
-  html += '<h2>現地写真</h2><table>' + wtr('写真枚数', d.photos + ' 枚') + wtr('フロア概略図', floorLoaded ? '取込済' : '未取込') + '</table>';
   if (floorLoaded) {
-    var imgData = document.getElementById('floorCanvas').toDataURL('image/png');
-    html += '<h2>フロア概略図</h2><img src="' + imgData + '" style="max-width:100%;">';
+    var floorImg = document.getElementById('floorCanvas').toDataURL('image/png');
+    html += '<h2>フロア概略図</h2>';
+    html += '<img src="' + floorImg + '" style="max-width:100%;border:1px solid #ddd;">';
+  }
+  var wPhotos = collectPhotos();
+  if (wPhotos.length > 0) {
+    html += '<h2>現地写真</h2>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:8pt;">';
+    wPhotos.forEach(function (p) {
+      html += '<div style="width:48%;margin-bottom:8pt;">';
+      html += '<img src="' + p.src + '" style="width:100%;border:1px solid #ddd;">';
+      html += '<p style="font-size:9pt;color:#666;text-align:center;margin:2pt 0 0;">' + p.name + '</p>';
+      html += '</div>';
+    });
+    html += '</div>';
   }
   html += '</body></html>';
 
