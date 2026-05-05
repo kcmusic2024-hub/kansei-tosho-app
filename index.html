@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>完成図書作成アプリ</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -593,6 +594,12 @@
       <p style="font-size:0.75rem; color:#aaa; margin-top:8px;">
         ※ テンプレート未読込の場合は選択フォーマットで標準出力します
       </p>
+      <div style="margin-top:12px; padding-top:12px; border-top:var(--border);">
+        <p style="font-size:0.78rem; color:#666; margin-bottom:8px;">テンプレートファイルをお持ちでない場合：</p>
+        <button class="btn btn-outline" onclick="downloadExcelTemplate()" style="font-size:0.82rem; padding:9px 16px;">
+          📥 Excelテンプレートをダウンロード
+        </button>
+      </div>
     </div>
 
     <!-- 入力内容確認 -->
@@ -891,8 +898,9 @@ function selectFmt(btn, fmt) {
 /* ============================================================
    テンプレート読み込み
    ============================================================ */
-var templateWB   = null;
-var templateFile = null;
+var templateWB     = null;   /* xlsx 解析済み（テンプレートなし時の標準出力用） */
+var templateBuffer = null;   /* 生バイナリ（JSZip置換用） */
+var templateFile   = null;
 
 function loadTemplate(evt) {
   var file = evt.target.files[0];
@@ -900,21 +908,12 @@ function loadTemplate(evt) {
   templateFile = file;
   var ext = file.name.split('.').pop().toLowerCase();
 
-  if (ext === 'xlsx' || ext === 'xls') {
-    var reader = new FileReader();
-    reader.onload = function (e) {
-      try {
-        templateWB = XLSX.read(new Uint8Array(e.target.result), { type: 'array' });
-      } catch (err) {
-        alert('Excelの読み込みに失敗しました:\n' + err.message);
-        return;
-      }
-      showTemplateStatus(file.name, fmtBadges[currentFmt]);
-    };
-    reader.readAsArrayBuffer(file);
-  } else {
+  var reader = new FileReader();
+  reader.onload = function (e) {
+    templateBuffer = e.target.result; /* ArrayBuffer としてそのまま保持 */
     showTemplateStatus(file.name, fmtBadges[currentFmt]);
-  }
+  };
+  reader.readAsArrayBuffer(file);
 }
 
 function showTemplateStatus(name, badge) {
@@ -924,7 +923,7 @@ function showTemplateStatus(name, badge) {
 }
 
 function clearTemplate() {
-  templateWB = null; templateFile = null;
+  templateWB = null; templateBuffer = null; templateFile = null;
   document.getElementById('templateFileInput').value = '';
   document.getElementById('templateStatus').style.display = 'none';
 }
@@ -957,58 +956,326 @@ function saveData() {
   else if (currentFmt === 'pdf')  saveAsPDF();
 }
 
+/* ---------- Excelテンプレートダウンロード ---------- */
+function downloadExcelTemplate() {
+  var wb = XLSX.utils.book_new();
+
+  var rows = [
+    ['完成図書', '', '', ''],
+    ['', '', '', ''],
+    ['【基本情報】', '', '', ''],
+    ['お客様名',   '{お客様名}',   '', ''],
+    ['拠点名',     '{拠点名}',     '', ''],
+    ['管理番号',   '{管理番号}',   '', ''],
+    ['実施日',     '{実施日}',     '', ''],
+    ['実施担当者', '{実施担当者}', '', ''],
+    ['', '', '', ''],
+    ['【電源情報】', '', '', ''],
+    ['電源数',       '{電源数}',     '必要電源数', '{必要電源数}'],
+    ['使用した電源数','{使用電源数}', '空き電源数', '{空き電源数}'],
+    ['', '', '', ''],
+    ['【機器設置スペース】', '', '', ''],
+    ['設置スペース',   '{設置スペース}',   '', ''],
+    ['設置不可理由',   '{設置不可理由}',   '', ''],
+    ['備考',           '{備考}',           '', ''],
+  ];
+
+  var ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:18},{wch:32},{wch:16},{wch:16}];
+  XLSX.utils.book_append_sheet(wb, ws, '完成図書');
+
+  var wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  dlBlob(
+    new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+    '完成図書テンプレート.xlsx'
+  );
+}
+
 /* ---------- Excel 保存 ---------- */
 function saveAsExcel(d) {
-  var wb, ws, filename;
-  if (templateWB) {
-    wb = templateWB;
-    ws = wb.Sheets[wb.SheetNames[0]];
-    var labelMap = {
-      'お客様名': d.customer, 'お客様': d.customer,
-      '拠点名': d.branch, '管理番号': d.mgmt,
-      '実施日': d.date, '実施担当者': d.staff, '担当者': d.staff,
-      '電源数': d.total, '必要電源数': d.required,
-      '使用した電源数': d.used, '空き電源数': d.free,
-      '機器設置スペース': d.space, '設置不可理由': d.ngreason, '備考': d.remarks
+
+  /* ===== テンプレートあり：SheetJS でセル置換後、画像シートを追加 ===== */
+  if (templateBuffer) {
+    var ph = {
+      '{お客様名}'    : d.customer  || '',
+      '{拠点名}'      : d.branch    || '',
+      '{管理番号}'    : d.mgmt      || '',
+      '{実施日}'      : d.date      || '',
+      '{実施担当者}'  : d.staff     || '',
+      '{電源数}'      : d.total,
+      '{必要電源数}'  : d.required,
+      '{使用電源数}'  : d.used,
+      '{空き電源数}'  : d.free,
+      '{設置スペース}': d.space     || '',
+      '{設置不可理由}': d.ngreason  || '',
+      '{備考}'        : d.remarks   || ''
     };
-    var range = XLSX.utils.decode_range(ws['!ref'] || 'A1:Z100');
-    for (var R = range.s.r; R <= range.e.r; R++) {
-      for (var C = range.s.c; C <= range.e.c; C++) {
-        var addr = XLSX.utils.encode_cell({r: R, c: C});
-        var cell = ws[addr];
-        if (!cell || cell.v === undefined) continue;
-        var ct = String(cell.v).trim();
-        Object.keys(labelMap).forEach(function (label) {
-          if (ct === label) {
-            var fa = XLSX.utils.encode_cell({r: R, c: C + 1});
-            if (!ws[fa] || ws[fa].v === '' || ws[fa].v === undefined) {
-              ws[fa] = { t: 's', v: labelMap[label] };
+
+    try {
+      /* SheetJS でテンプレートを読み込み（スタイル保持）*/
+      var wb = XLSX.read(templateBuffer, { type: 'array', cellStyles: true });
+
+      /* 全シートのセルを走査してプレースホルダーを置換 */
+      wb.SheetNames.forEach(function (sheetName) {
+        var ws = wb.Sheets[sheetName];
+        Object.keys(ws).forEach(function (cellRef) {
+          if (cellRef[0] === '!') return;
+          var cell = ws[cellRef];
+          if (!cell || (cell.t !== 's' && cell.t !== 'str')) return;
+          var val = String(cell.v == null ? '' : cell.v);
+          var changed = false;
+          Object.keys(ph).forEach(function (key) {
+            if (val.indexOf(key) !== -1) {
+              val = val.split(key).join(ph[key]);
+              changed = true;
             }
-          }
+          });
+          if (changed) { cell.v = val; cell.w = val; }
         });
+      });
+
+      /* SheetJS で書き出し（Uint8Array）*/
+      var wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellStyles: true });
+      var imgList = collectImages();
+
+      if (imgList.length > 0) {
+        /* 画像がある場合：JSZip で画像シートを追加 */
+        JSZip.loadAsync(wbout).then(function (zip) {
+          return addImagesSheet(zip, imgList).then(function () { return zip; });
+        }).then(function (zip) {
+          return zip.generateAsync({
+            type: 'blob',
+            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            compression: 'DEFLATE'
+          });
+        }).then(function (blob) {
+          dlBlob(blob, (d.customer || '完成図書') + '_filled.xlsx');
+        }).catch(function (err) {
+          console.warn('画像シート追加失敗、画像なしで保存します:', err);
+          dlBlob(
+            new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+            (d.customer || '完成図書') + '_filled.xlsx'
+          );
+        });
+      } else {
+        dlBlob(
+          new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+          (d.customer || '完成図書') + '_filled.xlsx'
+        );
       }
+    } catch (err) {
+      alert('テンプレート処理エラー:\n' + err.message +
+            '\n\nテンプレートが有効な .xlsx ファイルか確認してください。');
     }
-    filename = (d.customer || '完成図書') + '_filled.xlsx';
-  } else {
-    wb = XLSX.utils.book_new();
-    var rows = [
-      ['完成図書'], [''],
-      ['【基本情報】'], ['お客様名', d.customer], ['拠点名', d.branch],
-      ['管理番号', d.mgmt], ['実施日', d.date], ['実施担当者', d.staff], [''],
-      ['【電源情報】'],
-      ['電源数', d.total, '必要電源数', d.required],
-      ['使用した電源数', d.used, '空き電源数', d.free], [''],
-      ['【機器設置スペース】'], ['設置スペース', d.space],
-      ['設置不可理由', d.ngreason], ['備考', d.remarks], [''],
-      ['【現地写真】'], ['写真枚数', d.photos + ' 枚'],
-      ['フロア概略図', floorLoaded ? '取込済' : '未取込']
-    ];
-    ws = XLSX.utils.aoa_to_sheet(rows);
-    ws['!cols'] = [{wch:20},{wch:35},{wch:16},{wch:16}];
-    XLSX.utils.book_append_sheet(wb, ws, '完成図書');
-    filename = (d.customer || '完成図書') + '_' + (d.date || '日付未入力') + '.xlsx';
+    return;
   }
-  XLSX.writeFile(wb, filename);
+
+  /* ===== テンプレートなし：SheetJS で標準フォーマットを生成 ===== */
+  var wb = XLSX.utils.book_new();
+  var rows = [
+    ['完成図書'], [''],
+    ['【基本情報】'], ['お客様名', d.customer], ['拠点名', d.branch],
+    ['管理番号', d.mgmt], ['実施日', d.date], ['実施担当者', d.staff], [''],
+    ['【電源情報】'],
+    ['電源数', d.total, '必要電源数', d.required],
+    ['使用した電源数', d.used, '空き電源数', d.free], [''],
+    ['【機器設置スペース】'], ['設置スペース', d.space],
+    ['設置不可理由', d.ngreason], ['備考', d.remarks], [''],
+    ['【現地写真】'], ['写真枚数', d.photos + ' 枚'],
+    ['フロア概略図', floorLoaded ? '取込済' : '未取込']
+  ];
+  var ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:20},{wch:35},{wch:16},{wch:16}];
+  XLSX.utils.book_append_sheet(wb, ws, '完成図書');
+  var wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  dlBlob(
+    new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+    (d.customer || '完成図書') + '_' + (d.date || '日付未入力') + '.xlsx'
+  );
+}
+
+/* 画像をDOMから収集（フロア概略図 + 現地写真） */
+function collectImages() {
+  var imgList = [];
+  var canvas = document.getElementById('floorCanvas');
+  if (canvas && floorLoaded) {
+    try {
+      imgList.push({ dataURL: canvas.toDataURL('image/png'), ext: 'png', label: 'フロア概略図' });
+    } catch (e) {}
+  }
+  document.querySelectorAll('#photoGrid .photo-card').forEach(function (card, idx) {
+    var img = card.querySelector('img.photo-img');
+    if (img && img.src && img.src.indexOf('data:') === 0) {
+      var ext = img.src.indexOf('data:image/jpeg') === 0 ? 'jpg' : 'png';
+      var nameEl = card.querySelector('.photo-name-text');
+      var label = nameEl && nameEl.textContent.trim() ? nameEl.textContent.trim() : ('現地写真' + (idx + 1));
+      imgList.push({ dataURL: img.src, ext: ext, label: label });
+    }
+  });
+  return imgList;
+}
+
+/* 「現地写真・概略図」シートを XLSX ZIP に追加（画像埋め込み） */
+function addImagesSheet(zip, imgList) {
+  var existingSheets = Object.keys(zip.files).filter(function (n) {
+    return /^xl\/worksheets\/sheet\d+\.xml$/.test(n);
+  });
+  var nextSheetNum = existingSheets.length > 0 ?
+    Math.max.apply(null, existingSheets.map(function (n) { return parseInt(n.match(/sheet(\d+)/)[1], 10); })) + 1 : 1;
+
+  var existingDrawings = Object.keys(zip.files).filter(function (n) {
+    return /^xl\/drawings\/drawing\d+\.xml$/.test(n);
+  });
+  var nextDrawingNum = existingDrawings.length > 0 ?
+    Math.max.apply(null, existingDrawings.map(function (n) { return parseInt(n.match(/drawing(\d+)/)[1], 10); })) + 1 : 1;
+
+  var existingMedia = Object.keys(zip.files).filter(function (n) {
+    return /^xl\/media\/image\d+/i.test(n);
+  });
+  var nextMediaNum = existingMedia.length > 0 ?
+    Math.max.apply(null, existingMedia.map(function (n) { return parseInt(n.match(/image(\d+)/i)[1], 10); })) + 1 : 1;
+
+  var wbXmlFile  = zip.files['xl/workbook.xml'];
+  var wbRelsFile = zip.files['xl/_rels/workbook.xml.rels'];
+
+  return Promise.all([
+    wbXmlFile  ? wbXmlFile.async('text')  : Promise.resolve(''),
+    wbRelsFile ? wbRelsFile.async('text') : Promise.resolve('')
+  ]).then(function (results) {
+    var wbXml  = results[0];
+    var wbRels = results[1];
+
+    var ridRe = /Id="rId(\d+)"/g, ridMatch, rids = [];
+    while ((ridMatch = ridRe.exec(wbRels)) !== null) rids.push(parseInt(ridMatch[1], 10));
+    var nextRid = rids.length > 0 ? Math.max.apply(null, rids) + 1 : 1;
+
+    var sidRe = /sheetId="(\d+)"/g, sidMatch, sids = [];
+    while ((sidMatch = sidRe.exec(wbXml)) !== null) sids.push(parseInt(sidMatch[1], 10));
+    var nextSheetId = sids.length > 0 ? Math.max.apply(null, sids) + 1 : 1;
+
+    var drawingRels = [];
+    var anchors = [];
+
+    imgList.forEach(function (img, idx) {
+      var mediaNum = nextMediaNum + idx;
+      var b64 = img.dataURL.split(',')[1];
+      var bstr = atob(b64);
+      var u8 = new Uint8Array(bstr.length);
+      for (var i = 0; i < bstr.length; i++) u8[i] = bstr.charCodeAt(i);
+      zip.file('xl/media/image' + mediaNum + '.' + img.ext, u8, { binary: true });
+
+      var imgRid = 'rId' + (idx + 1);
+      drawingRels.push(
+        '<Relationship Id="' + imgRid + '" ' +
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" ' +
+        'Target="../media/image' + mediaNum + '.' + img.ext + '"/>'
+      );
+
+      var fromRow = idx * 18;
+      anchors.push(
+        '<xdr:twoCellAnchor editAs="oneCell">' +
+        '<xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff>' +
+        '<xdr:row>' + fromRow + '</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>' +
+        '<xdr:to><xdr:col>8</xdr:col><xdr:colOff>0</xdr:colOff>' +
+        '<xdr:row>' + (fromRow + 17) + '</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>' +
+        '<xdr:pic>' +
+          '<xdr:nvPicPr>' +
+            '<xdr:cNvPr id="' + (idx + 2) + '" name="' + xmlEscape(img.label) + '"/>' +
+            '<xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr>' +
+          '</xdr:nvPicPr>' +
+          '<xdr:blipFill>' +
+            '<a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="' + imgRid + '"/>' +
+            '<a:stretch><a:fillRect/></a:stretch>' +
+          '</xdr:blipFill>' +
+          '<xdr:spPr>' +
+            '<a:xfrm><a:off x="0" y="0"/><a:ext cx="1" cy="1"/></a:xfrm>' +
+            '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>' +
+          '</xdr:spPr>' +
+        '</xdr:pic>' +
+        '<xdr:clientData/>' +
+        '</xdr:twoCellAnchor>'
+      );
+    });
+
+    zip.file('xl/drawings/drawing' + nextDrawingNum + '.xml',
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" ' +
+      'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">' +
+      anchors.join('') + '</xdr:wsDr>');
+
+    zip.file('xl/drawings/_rels/drawing' + nextDrawingNum + '.xml.rels',
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      drawingRels.join('') + '</Relationships>');
+
+    zip.file('xl/worksheets/sheet' + nextSheetNum + '.xml',
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
+      'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+      '<sheetData/><drawing r:id="rId1"/></worksheet>');
+
+    zip.file('xl/worksheets/_rels/sheet' + nextSheetNum + '.xml.rels',
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" ' +
+      'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" ' +
+      'Target="../drawings/drawing' + nextDrawingNum + '.xml"/></Relationships>');
+
+    var newSheet = '<sheet name="現地写真・概略図" sheetId="' + nextSheetId + '" r:id="rId' + nextRid + '"/>';
+    var updWbXml = wbXml.indexOf('</sheets>') !== -1 ?
+      wbXml.replace('</sheets>', newSheet + '</sheets>') :
+      wbXml.replace('<sheets/>', '<sheets>' + newSheet + '</sheets>');
+    zip.file('xl/workbook.xml', updWbXml);
+
+    var newWbRel = '<Relationship Id="rId' + nextRid + '" ' +
+      'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" ' +
+      'Target="worksheets/sheet' + nextSheetNum + '.xml"/>';
+    var updWbRels = wbRels.indexOf('</Relationships>') !== -1 ?
+      wbRels.replace('</Relationships>', newWbRel + '</Relationships>') :
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      newWbRel + '</Relationships>';
+    zip.file('xl/_rels/workbook.xml.rels', updWbRels);
+
+    var ctFile = zip.files['[Content_Types].xml'];
+    return (ctFile ? ctFile.async('text') : Promise.resolve('')).then(function (ct) {
+      if (!ct) return;
+      var add = '';
+      var wsPN = '/xl/worksheets/sheet' + nextSheetNum + '.xml';
+      if (ct.indexOf(wsPN) === -1)
+        add += '<Override PartName="' + wsPN + '" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>';
+      var drPN = '/xl/drawings/drawing' + nextDrawingNum + '.xml';
+      if (ct.indexOf(drPN) === -1)
+        add += '<Override PartName="' + drPN + '" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>';
+      var needPng = imgList.some(function (i) { return i.ext === 'png'; });
+      var needJpg = imgList.some(function (i) { return i.ext === 'jpg'; });
+      if (needPng && ct.indexOf('Extension="png"') === -1)
+        add += '<Default Extension="png" ContentType="image/png"/>';
+      if (needJpg && ct.indexOf('Extension="jpg"') === -1 && ct.indexOf('Extension="jpeg"') === -1)
+        add += '<Default Extension="jpg" ContentType="image/jpeg"/>';
+      if (add) zip.file('[Content_Types].xml', ct.replace('</Types>', add + '</Types>'));
+    });
+  });
+}
+
+/* XMLエスケープ */
+function xmlEscape(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+/* Blob ダウンロード共通処理 */
+function dlBlob(blob, filename) {
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
 }
 
 /* ---------- PowerPoint 保存 ---------- */
