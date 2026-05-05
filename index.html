@@ -273,6 +273,13 @@
       cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: background 0.2s;
     }
     .save-btn:hover { background: var(--red-dark); }
+    .export-btn {
+      flex: 1; padding: 16px; background: #aaa; color: white; border: none;
+      border-radius: var(--radius); font-size: 1rem; font-weight: bold;
+      cursor: not-allowed; display: flex; align-items: center; justify-content: center; gap: 8px; transition: background 0.2s;
+    }
+    .export-btn:not([disabled]) { background: #2a7a3b; cursor: pointer; }
+    .export-btn:not([disabled]):hover { background: #1e5c2c; }
     .preview-btn {
       flex: 1; padding: 16px; background: #fff; color: var(--red);
       border: 2px solid var(--red); border-radius: var(--radius); font-size: 1rem; font-weight: bold;
@@ -594,12 +601,6 @@
       <p style="font-size:0.75rem; color:#aaa; margin-top:8px;">
         ※ テンプレート未読込の場合は選択フォーマットで標準出力します
       </p>
-      <div style="margin-top:12px; padding-top:12px; border-top:var(--border);">
-        <p style="font-size:0.78rem; color:#666; margin-bottom:8px;">テンプレートファイルをお持ちでない場合：</p>
-        <button class="btn btn-outline" onclick="downloadExcelTemplate()" style="font-size:0.82rem; padding:9px 16px;">
-          📥 Excelテンプレートをダウンロード
-        </button>
-      </div>
     </div>
 
     <!-- 入力内容確認 -->
@@ -623,10 +624,11 @@
       </table>
     </div>
 
-    <!-- 保存・プレビュー -->
+    <!-- プレビュー・保存・出力 -->
     <div class="export-actions">
-      <button class="preview-btn" onclick="openPreview()">👁 完成図書プレビュー</button>
+      <button class="preview-btn" onclick="openPreview()">👁 プレビュー</button>
       <button class="save-btn" onclick="saveData()">💾 保存</button>
+      <button class="export-btn" id="exportBtn" onclick="exportData()" disabled>📤 出力</button>
     </div>
 
   </div>
@@ -956,26 +958,20 @@ function saveData() {
   else if (currentFmt === 'pdf')  saveAsPDF();
 }
 
-/* ---------- Excelテンプレートダウンロード ---------- */
-function downloadExcelTemplate() {
-  var btn = document.querySelector('[onclick="downloadExcelTemplate()"]');
-  if (btn) { btn.textContent = '⏳ ダウンロード中...'; btn.disabled = true; }
+/* ---------- 保存済みBlobの管理 ---------- */
+var savedBlob = null;
+var savedFilename = '';
 
-  var url = 'https://raw.githubusercontent.com/kcmusic2024-hub/kansei-tosho-app/main/template.xlsx';
-  fetch(url)
-    .then(function(res) {
-      if (!res.ok) throw new Error('取得失敗: ' + res.status);
-      return res.blob();
-    })
-    .then(function(blob) {
-      dlBlob(blob, '完成図書テンプレート.xlsx');
-    })
-    .catch(function(err) {
-      alert('テンプレートの取得に失敗しました。\n' + err.message);
-    })
-    .finally(function() {
-      if (btn) { btn.innerHTML = '📥 Excelテンプレートをダウンロード'; btn.disabled = false; }
-    });
+function storeSave(blob, filename) {
+  savedBlob = blob;
+  savedFilename = filename;
+  var btn = document.getElementById('exportBtn');
+  if (btn) { btn.disabled = false; }
+}
+
+function exportData() {
+  if (!savedBlob) { alert('先に「保存」を実行してください。'); return; }
+  dlBlob(savedBlob, savedFilename);
 }
 
 /* ---------- Excel 保存 ---------- */
@@ -1036,16 +1032,16 @@ function saveAsExcel(d) {
             compression: 'DEFLATE'
           });
         }).then(function (blob) {
-          dlBlob(blob, (d.customer || '完成図書') + '_filled.xlsx');
+          storeSave(blob, (d.customer || '完成図書') + '_filled.xlsx');
         }).catch(function (err) {
           console.warn('画像シート追加失敗、画像なしで保存します:', err);
-          dlBlob(
+          storeSave(
             new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
             (d.customer || '完成図書') + '_filled.xlsx'
           );
         });
       } else {
-        dlBlob(
+        storeSave(
           new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
           (d.customer || '完成図書') + '_filled.xlsx'
         );
@@ -1075,7 +1071,7 @@ function saveAsExcel(d) {
   ws['!cols'] = [{wch:20},{wch:35},{wch:16},{wch:16}];
   XLSX.utils.book_append_sheet(wb, ws, '完成図書');
   var wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-  dlBlob(
+  storeSave(
     new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
     (d.customer || '完成図書') + '_' + (d.date || '日付未入力') + '.xlsx'
   );
@@ -1298,7 +1294,9 @@ function saveAsPPT(d) {
   }
 
   var filename = (d.customer || '完成図書') + '_' + (d.date || '日付未入力') + '.pptx';
-  pptx.writeFile({ fileName: filename });
+  pptx.write('blob').then(function (blob) {
+    storeSave(blob, filename);
+  });
 }
 
 /* ---------- Word 保存（HTML→.doc） ---------- */
@@ -1329,10 +1327,7 @@ function saveAsWord(d) {
   html += '</body></html>';
 
   var blob = new Blob([html], { type: 'application/msword;charset=utf-8' });
-  var a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = (d.customer || '完成図書') + '_' + (d.date || '日付未入力') + '.doc';
-  a.click();
+  storeSave(blob, (d.customer || '完成図書') + '_' + (d.date || '日付未入力') + '.doc');
 }
 
 function wtr(label, val) {
