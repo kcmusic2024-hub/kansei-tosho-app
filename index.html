@@ -502,6 +502,20 @@
     </div>
 
     <div class="card">
+      <div class="card-title">Gemini APIキー設定</div>
+      <div class="field" style="margin-bottom:6px;">
+        <label>APIキー（設定するとAIで整った平面図を生成します）</label>
+        <div style="display:flex;gap:8px;">
+          <input type="password" id="geminiKeyInput" placeholder="AIza..."
+            style="flex:1;padding:10px 12px;border:var(--border);border-radius:var(--radius);background:#fff;font-size:0.9rem;outline:none;">
+          <button class="btn btn-red" onclick="saveGeminiKey()" style="flex-shrink:0;">保存</button>
+        </div>
+        <span id="geminiKeyStatus" style="font-size:0.75rem;margin-top:4px;display:block;min-height:16px;"></span>
+      </div>
+      <p style="font-size:0.72rem;color:#aaa;margin:0;">未設定の場合はコントラスト強調のみで清書します。キーはブラウザに保存されます。</p>
+    </div>
+
+    <div class="card">
       <div class="card-title">手書き概略図の取り込み</div>
       <div class="drop-zone" id="dropZone">
         <input type="file" id="floorFileInput" accept="image/*" onchange="loadFloor(event)">
@@ -708,34 +722,145 @@ function onSpaceChange() {
 }
 
 /* ============================================================
-   フロア概略図 画像読込・Canvas清書処理
+   フロア概略図 画像読込・清書処理
    ============================================================ */
 var floorLoaded = false;
+var GEMINI_KEY  = localStorage.getItem('geminiApiKey') || '';
 
-/* Canvas APIでグレースケール＋コントラスト強調して清書風に処理する */
+/* APIキーを保存する */
+function saveGeminiKey() {
+  var key = document.getElementById('geminiKeyInput').value.trim();
+  GEMINI_KEY = key;
+  localStorage.setItem('geminiApiKey', key);
+  var st = document.getElementById('geminiKeyStatus');
+  st.textContent = key ? '保存しました ✓' : '削除しました';
+  st.style.color  = key ? '#2d8a45' : '#888';
+  setTimeout(function () { st.textContent = ''; }, 2000);
+}
+
+/* Gemini Vision で平面図を解析し、部屋情報JSON を返す（非同期） */
+async function analyzeFloorWithGemini(base64Data, mimeType) {
+  var url  = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=' + GEMINI_KEY;
+  var prompt = 'この手書き平面図の各部屋・スペースを分析してください。\n' +
+    '以下のJSON形式のみを出力してください。コードブロック（```）や説明文は不要です。\n\n' +
+    '{"rooms":[{"name":"部屋名","x":数値,"y":数値,"w":数値,"h":数値}]}\n\n' +
+    'ルール：x,yは左上原点からの相対位置（グリッド単位）、w,hは幅・高さ（グリッド単位）。' +
+    '隣接する部屋は座標が連続するようにしてください。1グリッド≈1〜2メートル。' +
+    '部屋名が読み取れない場合は「部屋」としてください。';
+  var body = {
+    contents: [{ parts: [
+      { text: prompt },
+      { inlineData: { mimeType: mimeType, data: base64Data } }
+    ]}]
+  };
+  var res  = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  var json = await res.json();
+  if (!res.ok) throw new Error((json.error && json.error.message) || 'Gemini APIエラー');
+  var text = json.candidates && json.candidates[0] && json.candidates[0].content &&
+             json.candidates[0].content.parts && json.candidates[0].content.parts[0].text;
+  if (!text) throw new Error('Geminiからの応答が取得できませんでした');
+  /* コードブロックを除去してJSONを抽出 */
+  text = text.replace(/```[a-z]*\n?/g, '').replace(/```/g, '').trim();
+  var m = text.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error('JSON形式の応答が得られませんでした');
+  return JSON.parse(m[0]);
+}
+
+/* Canvas APIで整った建築平面図を描画する */
+function drawCleanPlan(canvas, rooms) {
+  var W = 800, H = 580;
+  canvas.width  = W;
+  canvas.height = H;
+  var ctx = canvas.getContext('2d');
+
+  /* 白背景 */
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+
+  if (!rooms || rooms.length === 0) {
+    ctx.fillStyle = '#999';
+    ctx.font = '14px Meiryo, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('部屋情報を取得できませんでした', W / 2, H / 2);
+    return;
+  }
+
+  /* バウンディングボックス */
+  var minX = Math.min.apply(null, rooms.map(function (r) { return r.x; }));
+  var minY = Math.min.apply(null, rooms.map(function (r) { return r.y; }));
+  var maxX = Math.max.apply(null, rooms.map(function (r) { return r.x + r.w; }));
+  var maxY = Math.max.apply(null, rooms.map(function (r) { return r.y + r.h; }));
+  var totalW = maxX - minX;
+  var totalH = maxY - minY;
+  if (totalW === 0 || totalH === 0) return;
+
+  var pad   = 70;
+  var scale = Math.min((W - pad * 2) / totalW, (H - pad * 2) / totalH);
+  var offX  = (W - totalW * scale) / 2;
+  var offY  = (H - totalH * scale) / 2;
+
+  /* 各部屋を描画 */
+  rooms.forEach(function (room) {
+    var rx = offX + (room.x - minX) * scale;
+    var ry = offY + (room.y - minY) * scale;
+    var rw = room.w * scale;
+    var rh = room.h * scale;
+
+    /* 床面（薄いグレー） */
+    ctx.fillStyle = '#f0f4f8';
+    ctx.fillRect(rx + 1, ry + 1, rw - 2, rh - 2);
+
+    /* 壁（太い線） */
+    ctx.strokeStyle = '#1a2533';
+    ctx.lineWidth   = Math.max(2.5, scale * 0.14);
+    ctx.strokeRect(rx, ry, rw, rh);
+
+    /* 部屋名 */
+    var fontSize = Math.min(14, Math.max(9, Math.min(rw, rh) * 0.2));
+    ctx.fillStyle    = '#1a2533';
+    ctx.font         = 'bold ' + fontSize + 'px Meiryo, sans-serif';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(room.name, rx + rw / 2, ry + rh / 2, rw - 10);
+  });
+
+  /* 外周の太い壁を重ね書き */
+  ctx.strokeStyle = '#1a2533';
+  ctx.lineWidth   = Math.max(4, scale * 0.18);
+  var ox = offX + 0;
+  var oy = offY + 0;
+  var ow = totalW * scale;
+  var oh = totalH * scale;
+  ctx.strokeRect(ox, oy, ow, oh);
+
+  /* 凡例 */
+  ctx.fillStyle    = '#9aa5b4';
+  ctx.font         = '10px Meiryo, sans-serif';
+  ctx.textAlign    = 'left';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('フロア概略図（AI清書）', 8, H - 4);
+}
+
+/* Canvasフィルター方式（Gemini未設定時のフォールバック） */
 function seishoWithCanvas(srcDataUrl) {
   return new Promise(function (resolve, reject) {
     var img = new Image();
     img.onerror = reject;
     img.onload = function () {
-      var w = img.naturalWidth;
-      var h = img.naturalHeight;
       var off = document.createElement('canvas');
-      off.width  = w;
-      off.height = h;
-      var ctx = off.getContext('2d');
-      /* 白背景を敷いてから元画像を描画 */
+      off.width  = img.naturalWidth;
+      off.height = img.naturalHeight;
+      var ctx  = off.getContext('2d');
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, w, h);
+      ctx.fillRect(0, 0, off.width, off.height);
       ctx.drawImage(img, 0, 0);
-      /* ピクセル操作：グレースケール化→コントラスト強調→二値化 */
-      var id   = ctx.getImageData(0, 0, w, h);
+      var id   = ctx.getImageData(0, 0, off.width, off.height);
       var data = id.data;
       for (var i = 0; i < data.length; i += 4) {
-        var gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-        /* コントラスト強調（係数1.8）してから閾値180で二値化 */
+        var gray    = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
         var boosted = Math.min(255, Math.max(0, (gray - 128) * 1.8 + 128));
-        var val = boosted < 180 ? 0 : 255;
+        var val     = boosted < 180 ? 0 : 255;
         data[i] = data[i + 1] = data[i + 2] = val;
         data[i + 3] = 255;
       }
@@ -746,12 +871,23 @@ function seishoWithCanvas(srcDataUrl) {
   });
 }
 
+function applyCanvasResult(canvas, dataUrl) {
+  var img = new Image();
+  img.onload = function () {
+    canvas.width  = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    canvas.getContext('2d').drawImage(img, 0, 0);
+    canvas.style.display = 'block';
+  };
+  img.src = dataUrl;
+}
+
 function loadFloor(evt) {
   var file = evt.target.files[0];
   if (!file) return;
   var reader = new FileReader();
   reader.onload = function (e) {
-    /* 手書き画像を取り込みエリアに表示し、ドロップゾーンを隠す */
+    /* 手書き画像を取り込みエリアに表示 */
     var origImg = document.getElementById('floorOriginalImg');
     origImg.src = e.target.result;
     origImg.style.display = 'block';
@@ -767,24 +903,39 @@ function loadFloor(evt) {
     canvas.style.display = 'none';
     loading.classList.add('active');
 
-    /* Canvas処理はUIスレッドをブロックするため1フレーム後に実行 */
-    setTimeout(function () {
-      seishoWithCanvas(e.target.result).then(function (dataUrl) {
+    if (GEMINI_KEY) {
+      /* Gemini Vision で解析 → Canvas で整った平面図を描画 */
+      var base64   = e.target.result.split(',')[1];
+      var mimeType = file.type || 'image/jpeg';
+      analyzeFloorWithGemini(base64, mimeType).then(function (data) {
         loading.classList.remove('active');
-        var cleanImg = new Image();
-        cleanImg.onload = function () {
-          canvas.width  = cleanImg.naturalWidth;
-          canvas.height = cleanImg.naturalHeight;
-          canvas.getContext('2d').drawImage(cleanImg, 0, 0);
-          canvas.style.display = 'block';
-        };
-        cleanImg.src = dataUrl;
+        drawCleanPlan(canvas, data.rooms || []);
+        canvas.style.display = 'block';
       }).catch(function (err) {
-        loading.classList.remove('active');
-        document.getElementById('seishoErrorMsg').textContent = '処理エラー: ' + err.message;
-        errDiv.style.display = '';
+        console.warn('[Gemini解析失敗。Canvasフォールバック]', err.message);
+        /* フォールバック：Canvasフィルター */
+        seishoWithCanvas(e.target.result).then(function (dataUrl) {
+          loading.classList.remove('active');
+          applyCanvasResult(canvas, dataUrl);
+        }).catch(function (e2) {
+          loading.classList.remove('active');
+          document.getElementById('seishoErrorMsg').textContent = '処理エラー: ' + e2.message;
+          errDiv.style.display = '';
+        });
       });
-    }, 50);
+    } else {
+      /* Gemini未設定：Canvasフィルターで代替 */
+      setTimeout(function () {
+        seishoWithCanvas(e.target.result).then(function (dataUrl) {
+          loading.classList.remove('active');
+          applyCanvasResult(canvas, dataUrl);
+        }).catch(function (err) {
+          loading.classList.remove('active');
+          document.getElementById('seishoErrorMsg').textContent = '処理エラー: ' + err.message;
+          errDiv.style.display = '';
+        });
+      }, 50);
+    }
   };
   reader.readAsDataURL(file);
 }
@@ -1204,6 +1355,11 @@ function pcard(label, val) {
   return '<div class="doc-power-cell"><div class="lbl">' + label + '</div><div class="val">' + val + '</div></div>';
 }
 
+/* ページ起動時：localStorageのAPIキーを入力欄に復元 */
+(function () {
+  var saved = localStorage.getItem('geminiApiKey');
+  if (saved) document.getElementById('geminiKeyInput').value = saved;
+})();
 </script>
 
 </body>
