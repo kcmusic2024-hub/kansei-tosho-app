@@ -502,29 +502,6 @@
     </div>
 
     <div class="card">
-      <div class="card-title">Gemini API設定</div>
-      <div class="field" style="margin-bottom:6px;">
-        <label>Gemini APIキー</label>
-        <div style="display:flex;gap:8px;">
-          <input type="password" id="geminiKeyInput" placeholder="AIza..."
-            style="flex:1;padding:10px 12px;border:var(--border);border-radius:var(--radius);background:#fff;font-size:0.9rem;outline:none;">
-          <button class="btn btn-red" onclick="saveGeminiKey()" style="flex-shrink:0;">保存</button>
-        </div>
-        <span id="geminiKeyStatus" style="font-size:0.75rem;margin-top:4px;display:block;min-height:16px;"></span>
-      </div>
-      <div class="field" style="margin-bottom:6px;">
-        <label>使用モデル</label>
-        <div style="display:flex;gap:8px;">
-          <input type="text" id="geminiModelInput" placeholder="gemini-2.0-flash-preview-image-generation"
-            style="flex:1;padding:8px 10px;border:var(--border);border-radius:var(--radius);background:#fff;font-size:0.82rem;outline:none;">
-          <button class="btn btn-outline" onclick="checkGeminiModels()" style="flex-shrink:0;font-size:0.75rem;padding:8px 12px;">モデル確認</button>
-        </div>
-        <span id="geminiModelStatus" style="font-size:0.72rem;margin-top:4px;display:block;min-height:16px;color:#888;white-space:pre-wrap;word-break:break-all;"></span>
-      </div>
-      <p style="font-size:0.72rem;color:#aaa;margin:0;">APIキーはブラウザのローカルストレージに保存されます。未入力の場合は元の画像をそのまま表示します。</p>
-    </div>
-
-    <div class="card">
       <div class="card-title">手書き概略図の取り込み</div>
       <div class="drop-zone" id="dropZone">
         <input type="file" id="floorFileInput" accept="image/*" onchange="loadFloor(event)">
@@ -557,10 +534,6 @@
           <div class="seisho-empty" id="seishoEmpty">
             <span class="icon">🗺️</span>
             手書き概略図をアップロードすると<br>清書画像がここに表示されます
-          </div>
-          <div class="seisho-empty" id="seishoNoKey" style="display:none;">
-            <span class="icon">🔑</span>
-            Gemini APIキーを設定すると<br>清書画像がここに表示されます
           </div>
           <div class="seisho-empty" id="seishoError" style="display:none;">
             <span class="icon">⚠️</span>
@@ -735,100 +708,42 @@ function onSpaceChange() {
 }
 
 /* ============================================================
-   フロア概略図 画像読込
+   フロア概略図 画像読込・Canvas清書処理
    ============================================================ */
 var floorLoaded = false;
-/* localStorageからGemini APIキーを復元 */
-var GEMINI_KEY = localStorage.getItem('geminiApiKey') || '';
 
-/* Gemini APIキーを保存する */
-function saveGeminiKey() {
-  var key = document.getElementById('geminiKeyInput').value.trim();
-  GEMINI_KEY = key;
-  localStorage.setItem('geminiApiKey', key);
-  var status = document.getElementById('geminiKeyStatus');
-  status.textContent = key ? '保存しました ✓' : '削除しました';
-  status.style.color = key ? '#2d8a45' : '#888';
-  setTimeout(function () { status.textContent = ''; }, 2000);
-}
-
-/* 利用可能なGeminiモデルを確認してステータス欄に表示 */
-async function checkGeminiModels() {
-  if (!GEMINI_KEY) { alert('先にAPIキーを保存してください。'); return; }
-  var statusEl = document.getElementById('geminiModelStatus');
-  statusEl.textContent = '確認中...';
-  try {
-    var res  = await fetch('https://generativelanguage.googleapis.com/v1beta/models?key=' + GEMINI_KEY);
-    var json = await res.json();
-    if (!res.ok) { statusEl.textContent = 'エラー: ' + (json.error && json.error.message); return; }
-    /* generateContent に対応しているモデルだけ抽出 */
-    var list = (json.models || []).filter(function (m) {
-      return m.supportedGenerationMethods && m.supportedGenerationMethods.includes('generateContent');
-    }).map(function (m) { return m.name.replace('models/', ''); });
-    statusEl.textContent = '利用可能なモデル:\n' + list.join('\n');
-    console.log('[Gemini] 利用可能モデル:', list);
-  } catch (e) {
-    statusEl.textContent = 'エラー: ' + e.message;
-  }
-}
-
-/* Gemini APIで画像を清書し、dataURLを返す（非同期）。モデルを順番に試す */
-async function callGeminiSeisho(base64Data, mimeType) {
-  /* モデル入力欄の値を最優先。空なら候補を順番に試す */
-  var customModel = (document.getElementById('geminiModelInput').value || '').trim();
-  var models = customModel ? [customModel] : [
-    'gemini-2.0-flash-exp'
-  ];
-  var body = {
-    contents: [{
-      parts: [
-        { text: 'この手書きフロア概略図を、シンプルで見やすいクリーンな建築平面図として清書してください。線はきれいに、文字ははっきりと、全体的に整理された図面にしてください。背景は白で出力してください。' },
-        { inlineData: { mimeType: mimeType, data: base64Data } }
-      ]
-    }],
-    generationConfig: { responseModalities: ['IMAGE', 'TEXT'] }
-  };
-
-  var lastErr = '不明なエラー';
-  for (var m = 0; m < models.length; m++) {
-    var url = 'https://generativelanguage.googleapis.com/v1beta/models/' +
-              models[m] + ':generateContent?key=' + GEMINI_KEY;
-    try {
-      var res  = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      var json = await res.json();
-      /* デバッグ用：コンソールにレスポンスを表示 */
-      console.log('[Gemini] モデル:', models[m], '| status:', res.status, '| response:', JSON.stringify(json).substring(0, 600));
-
-      if (!res.ok) {
-        lastErr = (json.error && json.error.message) || ('HTTP ' + res.status);
-        continue; /* 次のモデルを試す */
+/* Canvas APIでグレースケール＋コントラスト強調して清書風に処理する */
+function seishoWithCanvas(srcDataUrl) {
+  return new Promise(function (resolve, reject) {
+    var img = new Image();
+    img.onerror = reject;
+    img.onload = function () {
+      var w = img.naturalWidth;
+      var h = img.naturalHeight;
+      var off = document.createElement('canvas');
+      off.width  = w;
+      off.height = h;
+      var ctx = off.getContext('2d');
+      /* 白背景を敷いてから元画像を描画 */
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0);
+      /* ピクセル操作：グレースケール化→コントラスト強調→二値化 */
+      var id   = ctx.getImageData(0, 0, w, h);
+      var data = id.data;
+      for (var i = 0; i < data.length; i += 4) {
+        var gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        /* コントラスト強調（係数1.8）してから閾値180で二値化 */
+        var boosted = Math.min(255, Math.max(0, (gray - 128) * 1.8 + 128));
+        var val = boosted < 180 ? 0 : 255;
+        data[i] = data[i + 1] = data[i + 2] = val;
+        data[i + 3] = 255;
       }
-
-      /* 安全フィルターによるブロックチェック */
-      var cand = json.candidates && json.candidates[0];
-      if (cand && cand.finishReason && cand.finishReason !== 'STOP') {
-        lastErr = '生成がブロックされました（' + cand.finishReason + '）';
-        continue;
-      }
-
-      var parts = cand && cand.content && cand.content.parts;
-      if (!parts) { lastErr = 'レスポンスに画像が含まれていません'; continue; }
-
-      for (var i = 0; i < parts.length; i++) {
-        if (parts[i].inlineData) {
-          return 'data:' + parts[i].inlineData.mimeType + ';base64,' + parts[i].inlineData.data;
-        }
-      }
-      lastErr = '画像データが見つかりませんでした';
-    } catch (e) {
-      lastErr = e.message;
-    }
-  }
-  throw new Error(lastErr);
+      ctx.putImageData(id, 0, 0);
+      resolve(off.toDataURL('image/png'));
+    };
+    img.src = srcDataUrl;
+  });
 }
 
 function loadFloor(evt) {
@@ -844,38 +759,18 @@ function loadFloor(evt) {
     floorLoaded = true;
     syncFloorInfo();
 
-    var canvas   = document.getElementById('floorCanvas');
-    var loading  = document.getElementById('seishoLoading');
-    var empty    = document.getElementById('seishoEmpty');
-    var noKey    = document.getElementById('seishoNoKey');
-    var errDiv   = document.getElementById('seishoError');
-    var errMsg   = document.getElementById('seishoErrorMsg');
-
-    /* プレビューエリアを全リセット */
-    [empty, noKey, errDiv].forEach(function (el) { el.style.display = 'none'; });
+    var canvas  = document.getElementById('floorCanvas');
+    var loading = document.getElementById('seishoLoading');
+    var empty   = document.getElementById('seishoEmpty');
+    var errDiv  = document.getElementById('seishoError');
+    [empty, errDiv].forEach(function (el) { el.style.display = 'none'; });
     canvas.style.display = 'none';
-
-    if (!GEMINI_KEY) {
-      /* APIキー未設定：出力用に元画像をcanvasへ描いておき、プレビューにはメッセージ表示 */
-      var tmpImg = new Image();
-      tmpImg.onload = function () {
-        canvas.width  = tmpImg.naturalWidth;
-        canvas.height = tmpImg.naturalHeight;
-        canvas.getContext('2d').drawImage(tmpImg, 0, 0);
-      };
-      tmpImg.src = e.target.result;
-      noKey.style.display = '';
-      return;
-    }
-
-    /* APIキーあり：Geminiで清書した画像をプレビューに表示 */
     loading.classList.add('active');
 
-    var base64   = e.target.result.split(',')[1];
-    var mimeType = file.type || 'image/jpeg';
-    callGeminiSeisho(base64, mimeType).then(function (dataUrl) {
-      loading.classList.remove('active');
-      if (dataUrl) {
+    /* Canvas処理はUIスレッドをブロックするため1フレーム後に実行 */
+    setTimeout(function () {
+      seishoWithCanvas(e.target.result).then(function (dataUrl) {
+        loading.classList.remove('active');
         var cleanImg = new Image();
         cleanImg.onload = function () {
           canvas.width  = cleanImg.naturalWidth;
@@ -884,13 +779,12 @@ function loadFloor(evt) {
           canvas.style.display = 'block';
         };
         cleanImg.src = dataUrl;
-      }
-    }).catch(function (err) {
-      loading.classList.remove('active');
-      errMsg.textContent  = 'エラー: ' + err.message + '（ブラウザのコンソールで詳細を確認できます）';
-      errDiv.style.display = '';
-      console.error('[Gemini清書エラー]', err.message);
-    });
+      }).catch(function (err) {
+        loading.classList.remove('active');
+        document.getElementById('seishoErrorMsg').textContent = '処理エラー: ' + err.message;
+        errDiv.style.display = '';
+      });
+    }, 50);
   };
   reader.readAsDataURL(file);
 }
@@ -901,14 +795,12 @@ function clearFloor() {
   origImg.src = '';
   origImg.style.display = 'none';
   document.getElementById('dropZone').style.display = '';
-
   /* 清書プレビューをリセット */
   var canvas = document.getElementById('floorCanvas');
   canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
   canvas.style.display = 'none';
   document.getElementById('seishoLoading').classList.remove('active');
   document.getElementById('seishoEmpty').style.display = '';
-  document.getElementById('seishoNoKey').style.display = 'none';
   document.getElementById('seishoError').style.display = 'none';
   document.getElementById('floorFileInput').value = '';
   floorLoaded = false;
@@ -1312,13 +1204,6 @@ function pcard(label, val) {
   return '<div class="doc-power-cell"><div class="lbl">' + label + '</div><div class="val">' + val + '</div></div>';
 }
 
-/* ページ読み込み時にlocalStorageからAPIキーを入力欄に復元 */
-(function () {
-  var saved = localStorage.getItem('geminiApiKey');
-  if (saved) {
-    document.getElementById('geminiKeyInput').value = saved;
-  }
-})();
 </script>
 
 </body>
