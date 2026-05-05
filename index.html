@@ -777,8 +777,6 @@ async function callGeminiSeisho(base64Data, mimeType) {
   /* モデル入力欄の値を最優先。空なら候補を順番に試す */
   var customModel = (document.getElementById('geminiModelInput').value || '').trim();
   var models = customModel ? [customModel] : [
-    'gemini-2.0-flash-preview-image-generation',
-    'gemini-2.0-flash-exp-image-generation',
     'gemini-2.0-flash-exp'
   ];
   var body = {
