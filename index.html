@@ -768,7 +768,7 @@ async function analyzeFloorWithGemini(base64Data, mimeType) {
 
 /* Canvas APIで整った建築平面図を描画する */
 function drawCleanPlan(canvas, rooms) {
-  var W = 800, H = 580;
+  var W = 900, H = 640;
   canvas.width  = W;
   canvas.height = H;
   var ctx = canvas.getContext('2d');
@@ -777,69 +777,79 @@ function drawCleanPlan(canvas, rooms) {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, W, H);
 
-  if (!rooms || rooms.length === 0) {
-    ctx.fillStyle = '#999';
-    ctx.font = '14px Meiryo, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('部屋情報を取得できませんでした', W / 2, H / 2);
-    return;
-  }
-
   /* バウンディングボックス */
   var minX = Math.min.apply(null, rooms.map(function (r) { return r.x; }));
   var minY = Math.min.apply(null, rooms.map(function (r) { return r.y; }));
   var maxX = Math.max.apply(null, rooms.map(function (r) { return r.x + r.w; }));
   var maxY = Math.max.apply(null, rooms.map(function (r) { return r.y + r.h; }));
-  var totalW = maxX - minX;
-  var totalH = maxY - minY;
-  if (totalW === 0 || totalH === 0) return;
+  var totalW = maxX - minX || 1;
+  var totalH = maxY - minY || 1;
 
-  var pad   = 70;
-  var scale = Math.min((W - pad * 2) / totalW, (H - pad * 2) / totalH);
+  var pad   = 80;
+  var scale = Math.min((W - pad * 2) / totalW, (H - pad * 2 - 30) / totalH);
   var offX  = (W - totalW * scale) / 2;
-  var offY  = (H - totalH * scale) / 2;
+  var offY  = (H - 30 - totalH * scale) / 2;
 
-  /* 各部屋を描画 */
+  var wallW  = Math.max(3, scale * 0.15);   /* 壁の太さ */
+  var WALL   = '#1e2b3a';                   /* 壁色（濃紺） */
+  var FLOOR  = ['#eef2f7','#e8f0e8','#f7f0e8','#f0e8f7','#e8f4f7']; /* 部屋色バリエーション */
+
+  /* ① 全部屋の床面（塗りつぶし）を先に描く */
+  rooms.forEach(function (room, idx) {
+    var rx = offX + (room.x - minX) * scale;
+    var ry = offY + (room.y - minY) * scale;
+    var rw = room.w * scale;
+    var rh = room.h * scale;
+    ctx.fillStyle = FLOOR[idx % FLOOR.length];
+    ctx.fillRect(rx, ry, rw, rh);
+  });
+
+  /* ② 壁線を描く（部屋ごとに太い実線） */
+  ctx.strokeStyle = WALL;
+  ctx.lineWidth   = wallW;
+  ctx.lineJoin    = 'miter';
   rooms.forEach(function (room) {
     var rx = offX + (room.x - minX) * scale;
     var ry = offY + (room.y - minY) * scale;
     var rw = room.w * scale;
     var rh = room.h * scale;
-
-    /* 床面（薄いグレー） */
-    ctx.fillStyle = '#f0f4f8';
-    ctx.fillRect(rx + 1, ry + 1, rw - 2, rh - 2);
-
-    /* 壁（太い線） */
-    ctx.strokeStyle = '#1a2533';
-    ctx.lineWidth   = Math.max(2.5, scale * 0.14);
     ctx.strokeRect(rx, ry, rw, rh);
-
-    /* 部屋名 */
-    var fontSize = Math.min(14, Math.max(9, Math.min(rw, rh) * 0.2));
-    ctx.fillStyle    = '#1a2533';
-    ctx.font         = 'bold ' + fontSize + 'px Meiryo, sans-serif';
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(room.name, rx + rw / 2, ry + rh / 2, rw - 10);
   });
 
-  /* 外周の太い壁を重ね書き */
-  ctx.strokeStyle = '#1a2533';
-  ctx.lineWidth   = Math.max(4, scale * 0.18);
-  var ox = offX + 0;
-  var oy = offY + 0;
-  var ow = totalW * scale;
-  var oh = totalH * scale;
-  ctx.strokeRect(ox, oy, ow, oh);
+  /* ③ 外周に二重壁線 */
+  ctx.strokeStyle = WALL;
+  ctx.lineWidth   = wallW * 1.8;
+  ctx.strokeRect(
+    offX, offY,
+    totalW * scale, totalH * scale
+  );
 
-  /* 凡例 */
+  /* ④ 部屋名ラベル */
+  rooms.forEach(function (room) {
+    var rx = offX + (room.x - minX) * scale;
+    var ry = offY + (room.y - minY) * scale;
+    var rw = room.w * scale;
+    var rh = room.h * scale;
+    var fs = Math.min(16, Math.max(9, Math.min(rw * 0.22, rh * 0.3)));
+    ctx.fillStyle    = WALL;
+    ctx.font         = 'bold ' + fs + 'px "Hiragino Kaku Gothic ProN", Meiryo, sans-serif';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    /* 面積表示（グリッド単位） */
+    ctx.fillText(room.name, rx + rw / 2, ry + rh / 2, rw - 8);
+    if (rw > 60 && rh > 40) {
+      ctx.font      = (fs * 0.7) + 'px Meiryo, sans-serif';
+      ctx.fillStyle = '#6b7a8d';
+      ctx.fillText(room.w + '×' + room.h, rx + rw / 2, ry + rh / 2 + fs + 2, rw - 8);
+    }
+  });
+
+  /* ⑤ キャプション */
   ctx.fillStyle    = '#9aa5b4';
-  ctx.font         = '10px Meiryo, sans-serif';
-  ctx.textAlign    = 'left';
+  ctx.font         = '11px Meiryo, sans-serif';
+  ctx.textAlign    = 'center';
   ctx.textBaseline = 'bottom';
-  ctx.fillText('フロア概略図（AI清書）', 8, H - 4);
+  ctx.fillText('フロア概略図（AI清書）', W / 2, H - 4);
 }
 
 /* Canvasフィルター方式（Gemini未設定時のフォールバック） */
@@ -899,43 +909,49 @@ function loadFloor(evt) {
     var loading = document.getElementById('seishoLoading');
     var empty   = document.getElementById('seishoEmpty');
     var errDiv  = document.getElementById('seishoError');
+    var errMsg  = document.getElementById('seishoErrorMsg');
     [empty, errDiv].forEach(function (el) { el.style.display = 'none'; });
     canvas.style.display = 'none';
-    loading.classList.add('active');
 
-    if (GEMINI_KEY) {
-      /* Gemini Vision で解析 → Canvas で整った平面図を描画 */
-      var base64   = e.target.result.split(',')[1];
-      var mimeType = file.type || 'image/jpeg';
-      analyzeFloorWithGemini(base64, mimeType).then(function (data) {
-        loading.classList.remove('active');
-        drawCleanPlan(canvas, data.rooms || []);
-        canvas.style.display = 'block';
-      }).catch(function (err) {
-        console.warn('[Gemini解析失敗。Canvasフォールバック]', err.message);
-        /* フォールバック：Canvasフィルター */
-        seishoWithCanvas(e.target.result).then(function (dataUrl) {
-          loading.classList.remove('active');
-          applyCanvasResult(canvas, dataUrl);
-        }).catch(function (e2) {
-          loading.classList.remove('active');
-          document.getElementById('seishoErrorMsg').textContent = '処理エラー: ' + e2.message;
-          errDiv.style.display = '';
-        });
-      });
-    } else {
-      /* Gemini未設定：Canvasフィルターで代替 */
-      setTimeout(function () {
-        seishoWithCanvas(e.target.result).then(function (dataUrl) {
-          loading.classList.remove('active');
-          applyCanvasResult(canvas, dataUrl);
-        }).catch(function (err) {
-          loading.classList.remove('active');
-          document.getElementById('seishoErrorMsg').textContent = '処理エラー: ' + err.message;
-          errDiv.style.display = '';
-        });
-      }, 50);
+    /* APIキー未設定時は案内メッセージを表示 */
+    if (!GEMINI_KEY) {
+      errMsg.style.color = '#888';
+      errMsg.textContent = 'Gemini APIキーを設定すると整った平面図を生成します。';
+      errDiv.style.display = '';
+      /* 出力用に元画像をcanvasへ保持 */
+      var tmp = new Image();
+      tmp.onload = function () {
+        canvas.width  = tmp.naturalWidth;
+        canvas.height = tmp.naturalHeight;
+        canvas.getContext('2d').drawImage(tmp, 0, 0);
+      };
+      tmp.src = e.target.result;
+      return;
     }
+
+    /* Gemini Vision で解析 → Canvas で整った平面図を描画 */
+    loading.classList.add('active');
+    var base64   = e.target.result.split(',')[1];
+    var mimeType = file.type || 'image/jpeg';
+
+    analyzeFloorWithGemini(base64, mimeType).then(function (data) {
+      loading.classList.remove('active');
+      var rooms = data.rooms || [];
+      if (rooms.length === 0) {
+        errMsg.style.color = '#c0392b';
+        errMsg.textContent = '部屋情報を取得できませんでした。より鮮明な画像で再試行してください。';
+        errDiv.style.display = '';
+        return;
+      }
+      drawCleanPlan(canvas, rooms);
+      canvas.style.display = 'block';
+    }).catch(function (err) {
+      loading.classList.remove('active');
+      errMsg.style.color = '#c0392b';
+      errMsg.textContent = 'エラー: ' + err.message;
+      errDiv.style.display = '';
+      console.error('[Gemini解析エラー]', err.message);
+    });
   };
   reader.readAsDataURL(file);
 }
