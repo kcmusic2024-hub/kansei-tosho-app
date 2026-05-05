@@ -958,37 +958,24 @@ function saveData() {
 
 /* ---------- Excelテンプレートダウンロード ---------- */
 function downloadExcelTemplate() {
-  var wb = XLSX.utils.book_new();
+  var btn = document.querySelector('[onclick="downloadExcelTemplate()"]');
+  if (btn) { btn.textContent = '⏳ ダウンロード中...'; btn.disabled = true; }
 
-  var rows = [
-    ['完成図書', '', '', ''],
-    ['', '', '', ''],
-    ['【基本情報】', '', '', ''],
-    ['お客様名',   '{お客様名}',   '', ''],
-    ['拠点名',     '{拠点名}',     '', ''],
-    ['管理番号',   '{管理番号}',   '', ''],
-    ['実施日',     '{実施日}',     '', ''],
-    ['実施担当者', '{実施担当者}', '', ''],
-    ['', '', '', ''],
-    ['【電源情報】', '', '', ''],
-    ['電源数',       '{電源数}',     '必要電源数', '{必要電源数}'],
-    ['使用した電源数','{使用電源数}', '空き電源数', '{空き電源数}'],
-    ['', '', '', ''],
-    ['【機器設置スペース】', '', '', ''],
-    ['設置スペース',   '{設置スペース}',   '', ''],
-    ['設置不可理由',   '{設置不可理由}',   '', ''],
-    ['備考',           '{備考}',           '', ''],
-  ];
-
-  var ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{wch:18},{wch:32},{wch:16},{wch:16}];
-  XLSX.utils.book_append_sheet(wb, ws, '完成図書');
-
-  var wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-  dlBlob(
-    new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
-    '完成図書テンプレート.xlsx'
-  );
+  var url = 'https://raw.githubusercontent.com/kcmusic2024-hub/kansei-tosho-app/main/template.xlsx';
+  fetch(url)
+    .then(function(res) {
+      if (!res.ok) throw new Error('取得失敗: ' + res.status);
+      return res.blob();
+    })
+    .then(function(blob) {
+      dlBlob(blob, '完成図書テンプレート.xlsx');
+    })
+    .catch(function(err) {
+      alert('テンプレートの取得に失敗しました。\n' + err.message);
+    })
+    .finally(function() {
+      if (btn) { btn.innerHTML = '📥 Excelテンプレートをダウンロード'; btn.disabled = false; }
+    });
 }
 
 /* ---------- Excel 保存 ---------- */
