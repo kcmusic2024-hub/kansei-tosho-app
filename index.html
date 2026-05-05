@@ -765,15 +765,68 @@ async function checkGeminiModels() {
   }
 }
 
-/* Gemini Vision で平面図を解析し、部屋情報JSON を返す（非同期） */
+/* Gemini API で清書画像を生成して dataURL を返す（非同期）
+   1. 画像生成モデル（Gemini 3系）で直接清書画像を生成
+   2. 失敗時は Vision テキストモデルで部屋JSON解析 → Canvas描画にフォールバック */
+async function callGeminiSeisho(base64Data, mimeType) {
+  /* 画像生成対応モデルを優先順に試す */
+  var imageGenModels = [
+    { ver: 'v1beta', model: 'gemini-3.1-flash-image-preview' },
+    { ver: 'v1beta', model: 'gemini-3-pro-image-preview' },
+  ];
+  var imagePrompt =
+    'この手書きの平面図を、CAD図面のように整然とした清書された建築平面図として描き直してください。' +
+    '直線の壁、明確な部屋の境界線、読みやすい日本語の部屋名ラベルを白背景で描いてください。' +
+    '手書き風の線は不要です。';
+
+  for (var i = 0; i < imageGenModels.length; i++) {
+    var c   = imageGenModels[i];
+    var url = 'https://generativelanguage.googleapis.com/' + c.ver + '/models/' + c.model + ':generateContent?key=' + GEMINI_KEY;
+    var body = {
+      contents: [{ parts: [
+        { text: imagePrompt },
+        { inlineData: { mimeType: mimeType, data: base64Data } }
+      ]}],
+      generationConfig: { responseModalities: ['IMAGE', 'TEXT'] }
+    };
+    try {
+      var res  = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      var json = await res.json();
+      console.log('[Gemini画像生成] ' + c.ver + '/' + c.model + ' → status:', res.status);
+      if (!res.ok) { console.warn('[失敗]', (json.error && json.error.message) || 'HTTP ' + res.status); continue; }
+      /* レスポンスから画像データを取り出す */
+      var parts = json.candidates && json.candidates[0] && json.candidates[0].content && json.candidates[0].content.parts;
+      if (parts) {
+        for (var j = 0; j < parts.length; j++) {
+          if (parts[j].inlineData && parts[j].inlineData.data) {
+            var imgMime = parts[j].inlineData.mimeType || 'image/png';
+            console.log('[Gemini画像生成] 成功:', c.ver + '/' + c.model);
+            return 'data:' + imgMime + ';base64,' + parts[j].inlineData.data;
+          }
+        }
+      }
+      console.warn('[Gemini画像生成] 画像データが応答に含まれていません');
+    } catch (e) {
+      console.warn('[Gemini画像生成エラー]', e.message);
+    }
+  }
+
+  /* 画像生成失敗 → Vision モデルで部屋JSON解析 → Canvas描画にフォールバック */
+  console.log('[フォールバック] Vision+Canvas方式で清書します');
+  var data = await analyzeFloorWithGemini(base64Data, mimeType);
+  var offCanvas = document.createElement('canvas');
+  drawCleanPlan(offCanvas, data.rooms || []);
+  return offCanvas.toDataURL('image/png');
+}
+
+/* Gemini Vision（テキスト出力）で平面図を解析し部屋情報JSONを返す（フォールバック用） */
 async function analyzeFloorWithGemini(base64Data, mimeType) {
-  /* APIバージョンとモデル名の組み合わせを優先順に試す */
+  /* 実在する Vision モデルを優先順に試す */
   var candidates = [
+    { ver: 'v1',     model: 'gemini-2.5-flash' },
     { ver: 'v1',     model: 'gemini-2.0-flash' },
-    { ver: 'v1',     model: 'gemini-2.0-flash-exp' },
-    { ver: 'v1',     model: 'gemini-1.5-flash' },
+    { ver: 'v1beta', model: 'gemini-2.5-flash' },
     { ver: 'v1beta', model: 'gemini-2.0-flash' },
-    { ver: 'v1beta', model: 'gemini-1.5-flash' },
   ];
   var prompt =
     'この手書き平面図の各部屋・スペースを分析してください。\n' +
@@ -796,7 +849,7 @@ async function analyzeFloorWithGemini(base64Data, mimeType) {
     try {
       var res  = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       var json = await res.json();
-      console.log('[Gemini] ' + c.ver + '/' + c.model + ' → status:', res.status);
+      console.log('[GeminiVision] ' + c.ver + '/' + c.model + ' → status:', res.status);
       if (!res.ok) { lastErr = (json.error && json.error.message) || ('HTTP ' + res.status); continue; }
       var text = json.candidates && json.candidates[0] && json.candidates[0].content &&
                  json.candidates[0].content.parts && json.candidates[0].content.parts[0].text;
@@ -804,7 +857,7 @@ async function analyzeFloorWithGemini(base64Data, mimeType) {
       text = text.replace(/```[a-z]*\n?/g, '').replace(/```/g, '').trim();
       var m = text.match(/\{[\s\S]*\}/);
       if (!m) { lastErr = 'JSON形式の応答が得られませんでした'; continue; }
-      console.log('[Gemini] 成功:', c.ver + '/' + c.model);
+      console.log('[GeminiVision] 成功:', c.ver + '/' + c.model);
       return JSON.parse(m[0]);
     } catch (e) {
       lastErr = e.message;
@@ -976,28 +1029,27 @@ function loadFloor(evt) {
       return;
     }
 
-    /* Gemini Vision で解析 → Canvas で整った平面図を描画 */
+    /* Gemini で清書画像を生成してプレビューに表示 */
     loading.classList.add('active');
     var base64   = e.target.result.split(',')[1];
     var mimeType = file.type || 'image/jpeg';
 
-    analyzeFloorWithGemini(base64, mimeType).then(function (data) {
+    callGeminiSeisho(base64, mimeType).then(function (dataUrl) {
       loading.classList.remove('active');
-      var rooms = data.rooms || [];
-      if (rooms.length === 0) {
-        errMsg.style.color = '#c0392b';
-        errMsg.textContent = '部屋情報を取得できませんでした。より鮮明な画像で再試行してください。';
-        errDiv.style.display = '';
-        return;
-      }
-      drawCleanPlan(canvas, rooms);
-      canvas.style.display = 'block';
+      var img = new Image();
+      img.onload = function () {
+        canvas.width  = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        canvas.getContext('2d').drawImage(img, 0, 0);
+        canvas.style.display = 'block';
+      };
+      img.src = dataUrl;
     }).catch(function (err) {
       loading.classList.remove('active');
       errMsg.style.color = '#c0392b';
       errMsg.textContent = 'エラー: ' + err.message;
       errDiv.style.display = '';
-      console.error('[Gemini解析エラー]', err.message);
+      console.error('[Gemini清書エラー]', err.message);
     });
   };
   reader.readAsDataURL(file);
