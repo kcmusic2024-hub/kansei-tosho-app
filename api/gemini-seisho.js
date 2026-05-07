@@ -1,8 +1,19 @@
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
+
+  /* 診断用：GETで環境変数の有無だけ確認できる */
+  if (req.method === 'GET') {
+    const key = process.env.GEMINI_API_KEY;
+    return res.status(200).json({
+      status: key ? 'ok' : 'missing',
+      keyLength: key ? key.length : 0,
+      keyPrefix: key ? key.slice(0, 6) + '...' : null
+    });
+  }
+
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
   const apiKey = process.env.GEMINI_API_KEY;
