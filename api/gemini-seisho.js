@@ -1,52 +1,55 @@
-module.exports = async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(200).end();
+export const config = { runtime: 'edge' };
 
-  /* 診断用：GETで環境変数の有無を確認 */
+export default async function handler(req) {
+  const cors = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+
+  const ok  = (data)         => new Response(JSON.stringify(data), { status: 200, headers: { ...cors, 'Content-Type': 'application/json' } });
+  const err = (msg, status)  => new Response(JSON.stringify({ error: msg }), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
+
+  if (req.method === 'OPTIONS') return new Response(null, { headers: cors });
+
+  /* 診断用GET */
   if (req.method === 'GET') {
     const key = process.env.GEMINI_API_KEY;
-    const allKeys = Object.keys(process.env).filter(k => !k.startsWith('npm_') && !k.startsWith('NODE'));
-    return res.status(200).json({
+    return ok({
       status: key ? 'ok' : 'missing',
       keyLength: key ? key.length : 0,
       keyPrefix: key ? key.slice(0, 6) + '...' : null,
-      envKeys: allKeys,
-      nodeVersion: process.version
+      runtime: 'edge'
     });
   }
 
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (req.method !== 'POST') return err('Method not allowed', 405);
 
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return res.status(500).json({ error: 'GEMINI_API_KEY が Vercel に設定されていません' });
+  if (!apiKey) return err('GEMINI_API_KEY が Vercel に設定されていません', 500);
 
-  const { base64, mimeType } = req.body || {};
-  if (!base64 || !mimeType) return res.status(400).json({ error: 'base64 と mimeType が必要です' });
+  let body;
+  try { body = await req.json(); } catch { return err('リクエスト形式が不正です', 400); }
 
-  /* タイムアウト付きfetch（Hobby=10秒制限のため7秒で切る） */
-  function fetchWithTimeout(url, options, ms) {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), ms);
-    return fetch(url, { ...options, signal: ctrl.signal }).finally(() => clearTimeout(timer));
-  }
+  const { base64, mimeType } = body;
+  if (!base64 || !mimeType) return err('base64 と mimeType が必要です', 400);
 
-  /* ① 画像生成モデルで清書画像を返す */
-  const imageGenModels = [
-    { ver: 'v1beta', model: 'gemini-2.0-flash-exp-image-generation' },
-    { ver: 'v1beta', model: 'gemini-2.0-flash-preview-image-generation' },
-  ];
   const imagePrompt =
     'この手書きの平面図を、CAD図面のように整然とした清書された建築平面図として描き直してください。' +
     '白背景に黒い線のみで描いてください。色は一切使わず、白と黒だけで表現してください。' +
     '直線の壁、明確な部屋の境界線、読みやすい日本語の部屋名ラベルを描いてください。' +
     '手書き風の線は不要です。';
 
+  /* ① 画像生成モデルで清書画像を生成（Edge=30秒まで待てる） */
+  const imageGenModels = [
+    { ver: 'v1beta', model: 'gemini-2.0-flash-exp-image-generation' },
+    { ver: 'v1beta', model: 'gemini-2.0-flash-preview-image-generation' },
+  ];
+
   for (const { ver, model } of imageGenModels) {
     try {
       const url = `https://generativelanguage.googleapis.com/${ver}/models/${model}:generateContent?key=${apiKey}`;
-      const gemRes = await fetchWithTimeout(url, {
+      const gemRes = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -56,24 +59,22 @@ module.exports = async function handler(req, res) {
           ]}],
           generationConfig: { responseModalities: ['IMAGE', 'TEXT'] }
         })
-      }, 7000);
+      });
       if (!gemRes.ok) { console.warn('[画像生成失敗]', model, gemRes.status); continue; }
       const json = await gemRes.json();
       const parts = json.candidates?.[0]?.content?.parts || [];
       for (const part of parts) {
         if (part.inlineData?.data) {
-          return res.status(200).json({
-            imageData: part.inlineData.data,
-            mimeType: part.inlineData.mimeType || 'image/png'
-          });
+          return ok({ imageData: part.inlineData.data, mimeType: part.inlineData.mimeType || 'image/png' });
         }
       }
+      console.warn('[画像生成] 画像データなし:', model);
     } catch (e) {
       console.warn('[画像生成エラー]', model, e.message);
     }
   }
 
-  /* ② フォールバック：Visionモデルで部屋JSON解析 → クライアント側でCanvas描画 */
+  /* ② フォールバック：Visionモデルで部屋JSON解析 → クライアント側Canvas描画 */
   const visionModels = [
     { ver: 'v1', model: 'gemini-2.0-flash' },
     { ver: 'v1', model: 'gemini-2.5-flash' },
@@ -88,7 +89,7 @@ module.exports = async function handler(req, res) {
   for (const { ver, model } of visionModels) {
     try {
       const url = `https://generativelanguage.googleapis.com/${ver}/models/${model}:generateContent?key=${apiKey}`;
-      const gemRes = await fetchWithTimeout(url, {
+      const gemRes = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -97,7 +98,7 @@ module.exports = async function handler(req, res) {
             { inlineData: { mimeType, data: base64 } }
           ]}]
         })
-      }, 7000);
+      });
       if (!gemRes.ok) continue;
       const json = await gemRes.json();
       const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
@@ -105,12 +106,12 @@ module.exports = async function handler(req, res) {
       const match = clean.match(/\{[\s\S]*\}/);
       if (match) {
         const parsed = JSON.parse(match[0]);
-        return res.status(200).json({ rooms: parsed.rooms || [] });
+        return ok({ rooms: parsed.rooms || [] });
       }
     } catch (e) {
       console.warn('[Vision解析エラー]', model, e.message);
     }
   }
 
-  return res.status(500).json({ error: '処理がタイムアウトしました。画像サイズを小さくして再試行してください。' });
-};
+  return err('AIによる処理に失敗しました。再試行してください。', 500);
+}
