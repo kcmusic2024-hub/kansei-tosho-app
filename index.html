@@ -460,6 +460,19 @@
       </div>
     </div>
 
+    <div class="card" id="geminiKeyCard">
+      <div class="card-title">Gemini APIキー設定</div>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <input type="password" id="geminiKeyInput" class="input-field"
+               placeholder="AIzaSy..." style="flex:1;"
+               oninput="saveGeminiKey()">
+        <span id="geminiKeyStatus" style="font-size:0.78rem; color:#4caf50; white-space:nowrap; min-width:3em;"></span>
+      </div>
+      <div style="font-size:0.75rem; color:#888; margin-top:6px;">
+        Google AI Studio で取得したAPIキーを入力してください。このデバイスにのみ保存されます。
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-title">手書き概略図の取り込み</div>
       <div class="drop-zone" id="dropZone">
@@ -486,7 +499,7 @@
         <div class="seisho-body" id="seishoBody">
           <div class="seisho-loading" id="seishoLoading">
             <div class="seisho-spinner"></div>
-            <div style="font-size:0.82rem;color:#888;">Geminiで清書中...</div>
+            <div style="font-size:0.82rem;color:#888;">Geminiで清書中...<br><span style="font-size:0.72rem;">（完成まで待機・タイムアウトなし）</span></div>
           </div>
           <div class="seisho-empty" id="seishoEmpty">
             <span class="icon">🗺️</span>
@@ -495,6 +508,7 @@
           <div class="seisho-empty" id="seishoError" style="display:none;">
             <span class="icon">⚠️</span>
             <span id="seishoErrorMsg" style="font-size:0.78rem;color:#c0392b;"></span>
+            <button class="btn btn-red" onclick="retrySeisho()" style="margin-top:12px;">再試行</button>
           </div>
           <canvas id="floorCanvas" style="display:none; width:100%;"></canvas>
         </div>
@@ -584,6 +598,21 @@
 
 <script>
 /* ============================================================
+   初期化（ページ読み込み時）
+   ============================================================ */
+(function () {
+  /* localStorageからGemini APIキーを復元 */
+  const savedKey = localStorage.getItem('geminiApiKey');
+  if (savedKey) {
+    const inp = document.getElementById('geminiKeyInput');
+    if (inp) {
+      inp.value = savedKey;
+      document.getElementById('geminiKeyStatus').textContent = '保存済み';
+    }
+  }
+})();
+
+/* ============================================================
    タブ切り替え
    ============================================================ */
 (function () {
@@ -658,6 +687,7 @@ function onSpaceChange() {
    フロア概略図 画像読込・清書処理
    ============================================================ */
 let floorLoaded = false;
+let floorCompressedBase64 = null; /* 再試行用に圧縮済みbase64を保持 */
 
 /* 画像をJPEG・100KB以下に圧縮して返す */
 function compressImage(dataUrl) {
@@ -695,122 +725,63 @@ function compressImage(dataUrl) {
   });
 }
 
-/* サーバー経由でGemini清書を依頼し、dataURLを返す */
+/* ブラウザからGeminiに直接リクエストし、清書画像のdataURLを返す（タイムアウトなし） */
 async function callGeminiSeisho(base64Data, mimeType) {
-  const res  = await fetch('/api/gemini-seisho', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ base64: base64Data, mimeType: mimeType })
-  });
-  const text = await res.text();
-  let json;
-  try { json = JSON.parse(text); } catch (e) {
-    throw new Error('サーバーがタイムアウトしました。再試行してください。');
-  }
-  if (!res.ok) throw new Error(json.error || 'サーバーエラー');
+  const apiKey = localStorage.getItem('geminiApiKey') || '';
+  if (!apiKey) throw new Error('GeminiのAPIキーが設定されていません。上のAPIキー欄に入力してください。');
 
-  if (json.imageData) {
-    return 'data:' + json.mimeType + ';base64,' + json.imageData;
-  }
-  if (json.rooms && json.rooms.length > 0) {
-    const offCanvas = document.createElement('canvas');
-    drawCleanPlan(offCanvas, json.rooms);
-    return offCanvas.toDataURL('image/png');
-  }
-  throw new Error('AIによる清書に失敗しました');
-}
+  const prompt =
+    'この手書きの平面図を、CAD図面のように整然とした清書された建築平面図として描き直してください。' +
+    '白背景に黒い線のみで描いてください。色は一切使わず、白と黒だけで表現してください。' +
+    '直線の壁、明確な部屋の境界線、読みやすい日本語の部屋名ラベルを描いてください。' +
+    '手書き風の線は不要です。';
 
-/* 手書き画像を白黒二値化してCanvasに描画する（最終フォールバック用） */
-function drawBinarizedFloor(canvas, dataUrl, callback) {
-  const img = new Image();
-  img.onload = function () {
-    canvas.width  = img.naturalWidth;
-    canvas.height = img.naturalHeight;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0);
-    const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const d  = id.data;
-    for (let i = 0; i < d.length; i += 4) {
-      const g  = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
-      const bw = g < 180 ? 0 : 255;
-      d[i] = d[i + 1] = d[i + 2] = bw;
-      d[i + 3] = 255;
+  /* 画像生成モデルを順に試す（タイムアウトなし・完成まで待機） */
+  const models = [
+    'gemini-2.0-flash-exp-image-generation',
+    'gemini-2.0-flash-preview-image-generation',
+  ];
+
+  for (const model of models) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [
+            { text: prompt },
+            { inlineData: { mimeType, data: base64Data } }
+          ]}],
+          generationConfig: { responseModalities: ['IMAGE', 'TEXT'] }
+        })
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(function () { return {}; });
+        const msg = errJson?.error?.message || res.statusText;
+        console.warn('[Gemini失敗]', model, res.status, msg);
+        /* APIキーが無効な場合はすぐに中断 */
+        if (res.status === 400 || res.status === 403) {
+          throw new Error('APIキーが無効か、このモデルへのアクセス権がありません: ' + msg);
+        }
+        continue;
+      }
+
+      const json = await res.json();
+      const parts = json.candidates?.[0]?.content?.parts || [];
+      for (const part of parts) {
+        if (part.inlineData?.data) {
+          return 'data:' + (part.inlineData.mimeType || 'image/png') + ';base64,' + part.inlineData.data;
+        }
+      }
+      console.warn('[Gemini] 画像データなし:', model);
+    } catch (e) {
+      if (e.message.startsWith('APIキーが')) throw e; /* 再スロー */
+      console.warn('[Geminiエラー]', model, e.message);
     }
-    ctx.putImageData(id, 0, 0);
-    if (callback) callback();
-  };
-  img.onerror = function () { if (callback) callback(); };
-  img.src = dataUrl;
-}
-
-/* Canvas APIで建築平面図を描画する（Vision解析フォールバック用） */
-function drawCleanPlan(canvas, rooms) {
-  const W = 900, H = 640;
-  canvas.width  = W;
-  canvas.height = H;
-  const ctx = canvas.getContext('2d');
-
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, W, H);
-
-  const minX   = Math.min.apply(null, rooms.map(function (r) { return r.x; }));
-  const minY   = Math.min.apply(null, rooms.map(function (r) { return r.y; }));
-  const maxX   = Math.max.apply(null, rooms.map(function (r) { return r.x + r.w; }));
-  const maxY   = Math.max.apply(null, rooms.map(function (r) { return r.y + r.h; }));
-  const totalW = maxX - minX || 1;
-  const totalH = maxY - minY || 1;
-
-  const pad   = 80;
-  const scale = Math.min((W - pad * 2) / totalW, (H - pad * 2 - 30) / totalH);
-  const offX  = (W - totalW * scale) / 2;
-  const offY  = (H - 30 - totalH * scale) / 2;
-  const wallW = Math.max(3, scale * 0.15);
-
-  rooms.forEach(function (room) {
-    const rx = offX + (room.x - minX) * scale;
-    const ry = offY + (room.y - minY) * scale;
-    const rw = room.w * scale;
-    const rh = room.h * scale;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(rx, ry, rw, rh);
-  });
-
-  ctx.strokeStyle = '#000000';
-  ctx.lineWidth   = wallW;
-  ctx.lineJoin    = 'miter';
-  rooms.forEach(function (room) {
-    const rx = offX + (room.x - minX) * scale;
-    const ry = offY + (room.y - minY) * scale;
-    ctx.strokeRect(rx, ry, room.w * scale, room.h * scale);
-  });
-
-  ctx.lineWidth = wallW * 1.8;
-  ctx.strokeRect(offX, offY, totalW * scale, totalH * scale);
-
-  rooms.forEach(function (room) {
-    const rx = offX + (room.x - minX) * scale;
-    const ry = offY + (room.y - minY) * scale;
-    const rw = room.w * scale;
-    const rh = room.h * scale;
-    const fs = Math.min(16, Math.max(9, Math.min(rw * 0.22, rh * 0.3)));
-    ctx.fillStyle    = '#000000';
-    ctx.font         = 'bold ' + fs + 'px "Hiragino Kaku Gothic ProN", Meiryo, sans-serif';
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(room.name, rx + rw / 2, ry + rh / 2, rw - 8);
-    if (rw > 60 && rh > 40) {
-      ctx.font = (fs * 0.7) + 'px Meiryo, sans-serif';
-      ctx.fillText(room.w + '×' + room.h, rx + rw / 2, ry + rh / 2 + fs + 2, rw - 8);
-    }
-  });
-
-  ctx.fillStyle    = '#000000';
-  ctx.font         = '11px Meiryo, sans-serif';
-  ctx.textAlign    = 'center';
-  ctx.textBaseline = 'bottom';
-  ctx.fillText('フロア概略図（AI清書）', W / 2, H - 4);
+  }
+  throw new Error('Geminiによる清書に失敗しました。再試行してください。');
 }
 
 function loadFloor(evt) {
@@ -834,8 +805,10 @@ function loadFloor(evt) {
       origImg.style.display = 'block';
       document.getElementById('dropZone').style.display = 'none';
       floorLoaded = true;
+      /* 再試行用にbase64を保持 */
+      floorCompressedBase64 = compressed.split(',')[1];
       syncFloorInfo();
-      return callGeminiSeisho(compressed.split(',')[1], 'image/jpeg');
+      return callGeminiSeisho(floorCompressedBase64, 'image/jpeg');
     }).then(function (dataUrl) {
       loading.classList.remove('active');
       const img = new Image();
@@ -849,19 +822,8 @@ function loadFloor(evt) {
     }).catch(function (err) {
       loading.classList.remove('active');
       console.error('[清書エラー]', err.message);
-      const origSrc = document.getElementById('floorOriginalImg').src;
-      if (origSrc && origSrc.indexOf('data:') === 0) {
-        drawBinarizedFloor(canvas, origSrc, function () {
-          canvas.style.display = 'block';
-          errMsg.style.color   = '#888';
-          errMsg.textContent   = 'AI清書できなかったため、手書き画像（白黒変換）を表示しています。';
-          errDiv.style.display = '';
-        });
-      } else {
-        errMsg.style.color   = '#c0392b';
-        errMsg.textContent   = 'エラー: ' + err.message;
-        errDiv.style.display = '';
-      }
+      errMsg.textContent   = err.message;
+      errDiv.style.display = '';
     });
   };
   reader.readAsDataURL(file);
@@ -880,6 +842,48 @@ function clearFloor() {
   document.getElementById('seishoError').style.display = 'none';
   document.getElementById('floorFileInput').value = '';
   floorLoaded = false;
+  floorCompressedBase64 = null;
+}
+
+/* 清書失敗時に再試行する（圧縮済み画像を再利用） */
+function retrySeisho() {
+  if (!floorCompressedBase64) return;
+  const canvas  = document.getElementById('floorCanvas');
+  const loading = document.getElementById('seishoLoading');
+  const errDiv  = document.getElementById('seishoError');
+  errDiv.style.display = 'none';
+  canvas.style.display = 'none';
+  loading.classList.add('active');
+  callGeminiSeisho(floorCompressedBase64, 'image/jpeg')
+    .then(function (dataUrl) {
+      loading.classList.remove('active');
+      const img = new Image();
+      img.onload = function () {
+        canvas.width  = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        canvas.getContext('2d').drawImage(img, 0, 0);
+        canvas.style.display = 'block';
+      };
+      img.src = dataUrl;
+    })
+    .catch(function (err) {
+      loading.classList.remove('active');
+      document.getElementById('seishoErrorMsg').textContent = err.message;
+      errDiv.style.display = '';
+    });
+}
+
+/* Gemini APIキーをlocalStorageに保存・復元する */
+function saveGeminiKey() {
+  const key    = document.getElementById('geminiKeyInput').value.trim();
+  const status = document.getElementById('geminiKeyStatus');
+  if (key) {
+    localStorage.setItem('geminiApiKey', key);
+    status.textContent = '保存済み';
+  } else {
+    localStorage.removeItem('geminiApiKey');
+    status.textContent = '';
+  }
 }
 
 /* ============================================================
