@@ -777,16 +777,15 @@ function drawCleanPlan(canvas, rooms) {
   var offY  = (H - 30 - totalH * scale) / 2;
 
   var wallW  = Math.max(3, scale * 0.15);   /* 壁の太さ */
-  var WALL   = '#1e2b3a';                   /* 壁色（濃紺） */
-  var FLOOR  = ['#eef2f7','#e8f0e8','#f7f0e8','#f0e8f7','#e8f4f7']; /* 部屋色バリエーション */
+  var WALL   = '#000000';                   /* 壁色（黒） */
 
-  /* ① 全部屋の床面（塗りつぶし）を先に描く */
-  rooms.forEach(function (room, idx) {
+  /* ① 全部屋の床面（白で塗りつぶし）を先に描く */
+  rooms.forEach(function (room) {
     var rx = offX + (room.x - minX) * scale;
     var ry = offY + (room.y - minY) * scale;
     var rw = room.w * scale;
     var rh = room.h * scale;
-    ctx.fillStyle = FLOOR[idx % FLOOR.length];
+    ctx.fillStyle = '#ffffff';
     ctx.fillRect(rx, ry, rw, rh);
   });
 
@@ -821,17 +820,16 @@ function drawCleanPlan(canvas, rooms) {
     ctx.font         = 'bold ' + fs + 'px "Hiragino Kaku Gothic ProN", Meiryo, sans-serif';
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
-    /* 面積表示（グリッド単位） */
     ctx.fillText(room.name, rx + rw / 2, ry + rh / 2, rw - 8);
     if (rw > 60 && rh > 40) {
       ctx.font      = (fs * 0.7) + 'px Meiryo, sans-serif';
-      ctx.fillStyle = '#6b7a8d';
+      ctx.fillStyle = '#000000';
       ctx.fillText(room.w + '×' + room.h, rx + rw / 2, ry + rh / 2 + fs + 2, rw - 8);
     }
   });
 
   /* ⑤ キャプション */
-  ctx.fillStyle    = '#9aa5b4';
+  ctx.fillStyle    = '#000000';
   ctx.font         = '11px Meiryo, sans-serif';
   ctx.textAlign    = 'center';
   ctx.textBaseline = 'bottom';
