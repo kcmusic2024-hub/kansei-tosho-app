@@ -25,6 +25,13 @@ module.exports = async function handler(req, res) {
   const { base64, mimeType } = req.body || {};
   if (!base64 || !mimeType) return res.status(400).json({ error: 'base64 と mimeType が必要です' });
 
+  /* タイムアウト付きfetch（Hobby=10秒制限のため7秒で切る） */
+  function fetchWithTimeout(url, options, ms) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms);
+    return fetch(url, { ...options, signal: ctrl.signal }).finally(() => clearTimeout(timer));
+  }
+
   /* ① 画像生成モデルで清書画像を返す */
   const imageGenModels = [
     { ver: 'v1beta', model: 'gemini-2.0-flash-exp-image-generation' },
@@ -39,7 +46,7 @@ module.exports = async function handler(req, res) {
   for (const { ver, model } of imageGenModels) {
     try {
       const url = `https://generativelanguage.googleapis.com/${ver}/models/${model}:generateContent?key=${apiKey}`;
-      const gemRes = await fetch(url, {
+      const gemRes = await fetchWithTimeout(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -49,7 +56,7 @@ module.exports = async function handler(req, res) {
           ]}],
           generationConfig: { responseModalities: ['IMAGE', 'TEXT'] }
         })
-      });
+      }, 7000);
       if (!gemRes.ok) { console.warn('[画像生成失敗]', model, gemRes.status); continue; }
       const json = await gemRes.json();
       const parts = json.candidates?.[0]?.content?.parts || [];
@@ -66,12 +73,10 @@ module.exports = async function handler(req, res) {
     }
   }
 
-  /* ② フォールバック：Visionモデルで部屋JSON解析を返し、クライアント側でCanvas描画 */
+  /* ② フォールバック：Visionモデルで部屋JSON解析 → クライアント側でCanvas描画 */
   const visionModels = [
-    { ver: 'v1',     model: 'gemini-2.5-flash' },
-    { ver: 'v1',     model: 'gemini-2.0-flash' },
-    { ver: 'v1beta', model: 'gemini-2.5-flash' },
-    { ver: 'v1beta', model: 'gemini-2.0-flash' },
+    { ver: 'v1', model: 'gemini-2.0-flash' },
+    { ver: 'v1', model: 'gemini-2.5-flash' },
   ];
   const visionPrompt =
     'この手書き平面図の各部屋・スペースを分析してください。\n' +
@@ -83,7 +88,7 @@ module.exports = async function handler(req, res) {
   for (const { ver, model } of visionModels) {
     try {
       const url = `https://generativelanguage.googleapis.com/${ver}/models/${model}:generateContent?key=${apiKey}`;
-      const gemRes = await fetch(url, {
+      const gemRes = await fetchWithTimeout(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -92,7 +97,7 @@ module.exports = async function handler(req, res) {
             { inlineData: { mimeType, data: base64 } }
           ]}]
         })
-      });
+      }, 7000);
       if (!gemRes.ok) continue;
       const json = await gemRes.json();
       const text = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
@@ -107,5 +112,5 @@ module.exports = async function handler(req, res) {
     }
   }
 
-  return res.status(500).json({ error: '全モデルで処理に失敗しました' });
+  return res.status(500).json({ error: '処理がタイムアウトしました。画像サイズを小さくして再試行してください。' });
 };

@@ -737,7 +737,12 @@ async function callGeminiSeisho(base64Data, mimeType) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ base64: base64Data, mimeType: mimeType })
   });
-  var json = await res.json();
+  /* 非JSONレスポンス（タイムアウト等）を安全に処理 */
+  var text = await res.text();
+  var json;
+  try { json = JSON.parse(text); } catch (e) {
+    throw new Error('サーバーがタイムアウトしました。画像を小さくして再試行してください。');
+  }
   if (!res.ok) throw new Error(json.error || 'サーバーエラー');
 
   if (json.imageData) {
