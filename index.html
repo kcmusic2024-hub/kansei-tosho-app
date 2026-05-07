@@ -233,7 +233,7 @@
     .confirm-table td:first-child { color: #777; width: 40%; white-space: nowrap; }
     .confirm-table td:last-child { color: #222; font-weight: 500; }
 
-    /* ===== フォーマット選択 ===== */
+    /* ===== フォーマット選択タブ ===== */
     .fmt-tab-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
     .fmt-tab {
       flex: 1; min-width: 70px; padding: 10px 8px;
@@ -245,7 +245,6 @@
     .fmt-tab .fmt-icon { font-size: 1.2rem; }
     .fmt-tab:hover { border-color: var(--red); color: var(--red); background: var(--red-light); }
     .fmt-tab.active { border-color: var(--red); color: var(--red); background: var(--red-light); }
-
     .export-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 18px; }
     .save-btn {
       flex: 1; padding: 16px; background: var(--red); color: white; border: none;
@@ -334,6 +333,45 @@
       .doc-power-row { grid-template-columns: repeat(2, 1fr); }
       .doc-photo-grid { grid-template-columns: repeat(2, 1fr); }
     }
+
+    /* ===== 設定ボタン ===== */
+    .settings-btn {
+      background: none; border: none; font-size: 1.2rem;
+      cursor: pointer; color: #aaa; padding: 6px 8px;
+      border-radius: var(--radius); transition: color 0.2s, background 0.2s;
+      line-height: 1;
+    }
+    .settings-btn:hover { color: var(--red); background: var(--red-light); }
+
+    /* ===== 設定モーダル ===== */
+    .settings-overlay {
+      display: none; position: fixed; inset: 0; z-index: 8000;
+    }
+    .settings-overlay.open { display: block; }
+    .settings-box {
+      position: absolute; top: 58px; right: 16px; width: 310px;
+      background: #fff; border-radius: 8px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.18); overflow: hidden;
+    }
+    .settings-header {
+      background: var(--red); color: white;
+      padding: 11px 16px; display: flex;
+      justify-content: space-between; align-items: center;
+      font-size: 0.88rem; font-weight: bold;
+    }
+    .settings-header button {
+      background: none; border: none; color: white;
+      cursor: pointer; font-size: 1rem; line-height: 1;
+    }
+    .settings-body { padding: 16px; }
+    .settings-body label { display: block; font-size: 0.78rem; color: #555; margin-bottom: 5px; }
+    .settings-body .key-row { display: flex; gap: 8px; }
+    .settings-body .key-row input {
+      flex: 1; padding: 9px 10px; border: var(--border);
+      border-radius: var(--radius); font-size: 0.85rem; outline: none;
+    }
+    .settings-body .key-row input:focus { border-color: var(--red); }
+    .settings-note { font-size: 0.72rem; color: #aaa; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -344,7 +382,10 @@
     <div class="header-icon">図</div>
     <div class="header-title">完成図書作成アプリ</div>
   </div>
-  <div class="header-ver">Ver.1.0</div>
+  <div style="display:flex;align-items:center;gap:6px;">
+    <div class="header-ver">Ver.0.9</div>
+    <button class="settings-btn" onclick="openSettings()" title="設定">⚙</button>
+  </div>
 </header>
 
 <!-- タブナビ -->
@@ -364,7 +405,9 @@
   <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
 </div>
 
-<!-- 基本情報 -->
+<!-- ============================================================
+     基本情報  ※ 順序：お客様名 → 拠点名 → 管理番号 → 実施日・担当者
+     ============================================================ -->
 <div class="tab-pane active" id="pane-basic">
   <div class="page-inner">
     <div class="card">
@@ -395,7 +438,9 @@
   </div>
 </div>
 
-<!-- 電源情報 -->
+<!-- ============================================================
+     電源情報  ※ 自由記入欄は削除
+     ============================================================ -->
 <div class="tab-pane" id="pane-power">
   <div class="page-inner">
     <div class="card">
@@ -432,6 +477,7 @@
       </div>
     </div>
 
+    <!-- 設置不可理由（設置不可選択時のみ表示） -->
     <div class="card" id="ngReasonCard" style="display:none;">
       <div class="card-title">設置不可理由</div>
       <div class="field">
@@ -439,16 +485,20 @@
       </div>
     </div>
 
+    <!-- 備考 -->
     <div class="card">
       <div class="card-title">備考</div>
       <div class="field">
         <textarea id="remarks" placeholder="備考・設置不可理由を記入ください" oninput="onInput()"></textarea>
       </div>
     </div>
+
   </div>
 </div>
 
-<!-- フロア概略図 -->
+<!-- ============================================================
+     フロア概略図  ※ 取り込み下に清書後プレビュー追加
+     ============================================================ -->
 <div class="tab-pane" id="pane-floor">
   <div class="page-inner">
 
@@ -460,19 +510,6 @@
       </div>
     </div>
 
-    <div class="card" id="geminiKeyCard">
-      <div class="card-title">Gemini APIキー設定</div>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <input type="password" id="geminiKeyInput" class="input-field"
-               placeholder="AIzaSy..." style="flex:1;"
-               oninput="saveGeminiKey()">
-        <span id="geminiKeyStatus" style="font-size:0.78rem; color:#4caf50; white-space:nowrap; min-width:3em;"></span>
-      </div>
-      <div style="font-size:0.75rem; color:#888; margin-top:6px;">
-        Google AI Studio で取得したAPIキーを入力してください。このデバイスにのみ保存されます。
-      </div>
-    </div>
-
     <div class="card">
       <div class="card-title">手書き概略図の取り込み</div>
       <div class="drop-zone" id="dropZone">
@@ -481,34 +518,35 @@
         <div class="drop-text">手書き図面を選択またはドロップ</div>
         <div class="drop-sub">JPG・PNG・GIF に対応</div>
       </div>
+      <!-- アップロードした手書き画像の表示エリア -->
       <img class="floor-uploaded-img" id="floorOriginalImg" alt="手書き概略図">
-      <div class="drop-note">アップロードした手書き図面をGeminiで清書し、清書後のプレビューに表示します。</div>
+      <div class="drop-note">アップロードした手書き図面をAIで解析し、簡易線画（間取り図）を生成して表示します。</div>
       <div class="floor-actions">
         <label class="btn btn-red" for="floorFileInput" style="cursor:pointer;">📁 画像を変更</label>
         <button class="btn btn-outline" onclick="clearFloor()">🗑 クリア</button>
       </div>
     </div>
 
+    <!-- 清書後のプレビュー（常時表示） -->
     <div class="card">
-      <div class="card-title">清書後のプレビュー</div>
+      <div class="card-title">AI線画プレビュー</div>
       <div class="seisho-preview">
         <div class="seisho-header">
           <span id="seishoCustomer">お客様名：－</span>
           <span id="seishoBranch">拠点名：－</span>
         </div>
-        <div class="seisho-body" id="seishoBody">
+        <div class="seisho-body">
           <div class="seisho-loading" id="seishoLoading">
             <div class="seisho-spinner"></div>
-            <div style="font-size:0.82rem;color:#888;">Geminiで清書中...<br><span style="font-size:0.72rem;">（完成まで待機・タイムアウトなし）</span></div>
+            <div style="font-size:0.82rem;color:#888;">AIで間取りを解析中...</div>
           </div>
           <div class="seisho-empty" id="seishoEmpty">
             <span class="icon">🗺️</span>
-            手書き概略図をアップロードすると<br>清書画像がここに表示されます
+            手書き概略図をアップロードすると<br>線画がここに表示されます
           </div>
           <div class="seisho-empty" id="seishoError" style="display:none;">
             <span class="icon">⚠️</span>
             <span id="seishoErrorMsg" style="font-size:0.78rem;color:#c0392b;"></span>
-            <button class="btn btn-red" onclick="retrySeisho()" style="margin-top:12px;">再試行</button>
           </div>
           <canvas id="floorCanvas" style="display:none; width:100%;"></canvas>
         </div>
@@ -518,7 +556,9 @@
   </div>
 </div>
 
-<!-- 現地写真 -->
+<!-- ============================================================
+     現地写真  ※ 撮影対象前の①②を削除
+     ============================================================ -->
 <div class="tab-pane" id="pane-photos">
   <div class="page-inner">
     <div class="card">
@@ -530,10 +570,13 @@
   </div>
 </div>
 
-<!-- 出力 -->
+<!-- ============================================================
+     出力  ※ 保存ボタン・テンプレート・完成図書プレビュー
+     ============================================================ -->
 <div class="tab-pane" id="pane-export">
   <div class="page-inner">
 
+    <!-- 出力フォーマット選択 -->
     <div class="card">
       <div class="card-title">出力フォーマット</div>
       <div class="fmt-tab-row">
@@ -552,6 +595,7 @@
       </div>
     </div>
 
+    <!-- 入力内容確認 -->
     <div class="card">
       <div class="card-title">入力内容確認</div>
       <table class="confirm-table">
@@ -572,6 +616,7 @@
       </table>
     </div>
 
+    <!-- プレビュー・保存 -->
     <div class="export-actions">
       <button class="preview-btn" onclick="openPreview()">👁 プレビュー</button>
       <button class="save-btn" onclick="saveData()">💾 保存</button>
@@ -580,7 +625,30 @@
   </div>
 </div>
 
-<!-- 完成図書プレビューモーダル -->
+<!-- ============================================================
+     設定モーダル（APIキー）
+     ============================================================ -->
+<div class="settings-overlay" id="settingsModal">
+  <div class="settings-box">
+    <div class="settings-header">
+      <span>⚙ 設定</span>
+      <button onclick="closeSettings()">✕</button>
+    </div>
+    <div class="settings-body">
+      <label>Gemini APIキー（間取り線画の生成に使用）</label>
+      <div class="key-row">
+        <input type="password" id="geminiKeyInput" placeholder="AIza...">
+        <button class="btn btn-red" onclick="saveGeminiKey()" style="flex-shrink:0;padding:9px 14px;">保存</button>
+      </div>
+      <span id="geminiKeyStatus" style="font-size:0.75rem;display:block;min-height:16px;margin-top:4px;"></span>
+      <p class="settings-note">キーはこのブラウザにのみ保存されます。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     完成図書 プレビューモーダル
+     ============================================================ -->
 <div class="modal-overlay" id="previewModal">
   <div class="modal-box">
     <div class="modal-header">
@@ -591,33 +659,20 @@
       </div>
     </div>
     <div class="doc-preview">
-      <div class="doc-page" id="docPage"></div>
+      <div class="doc-page" id="docPage">
+        <!-- JS で生成 -->
+      </div>
     </div>
   </div>
 </div>
 
 <script>
 /* ============================================================
-   初期化（ページ読み込み時）
-   ============================================================ */
-(function () {
-  /* localStorageからGemini APIキーを復元 */
-  const savedKey = localStorage.getItem('geminiApiKey');
-  if (savedKey) {
-    const inp = document.getElementById('geminiKeyInput');
-    if (inp) {
-      inp.value = savedKey;
-      document.getElementById('geminiKeyStatus').textContent = '保存済み';
-    }
-  }
-})();
-
-/* ============================================================
    タブ切り替え
    ============================================================ */
 (function () {
-  const btns  = document.querySelectorAll('.tab-btn');
-  const panes = document.querySelectorAll('.tab-pane');
+  var btns  = document.querySelectorAll('.tab-btn');
+  var panes = document.querySelectorAll('.tab-pane');
   btns.forEach(function (btn) {
     btn.addEventListener('click', function () {
       btns.forEach(function (b) { b.classList.remove('active'); });
@@ -632,29 +687,27 @@
 /* ============================================================
    進捗バー
    ============================================================ */
-const requiredFields = ['customerName', 'branchName', 'implementDate', 'staffName'];
-
+var requiredFields = ['customerName', 'branchName', 'implementDate', 'staffName'];
 function calcProgress() {
-  let filled = 0;
+  var filled = 0;
   requiredFields.forEach(function (id) {
     if (document.getElementById(id).value.trim()) filled++;
   });
-  const pct = Math.round((filled / requiredFields.length) * 100);
+  var pct = Math.round((filled / requiredFields.length) * 100);
   document.getElementById('progressFill').style.width = pct + '%';
   document.getElementById('progressPct').textContent = pct + '%';
 }
-
 function onInput() { calcProgress(); syncFloorInfo(); }
 
 /* ============================================================
    フロア概略図 ← 基本情報同期
    ============================================================ */
 function syncFloorInfo() {
-  const customer = document.getElementById('customerName').value.trim();
-  const branch   = document.getElementById('branchName').value.trim();
+  var customer = document.getElementById('customerName').value.trim();
+  var branch   = document.getElementById('branchName').value.trim();
 
   function setEl(id, val, placeholder) {
-    const el = document.getElementById(id);
+    var el = document.getElementById(id);
     if (val) { el.textContent = val; el.classList.remove('placeholder-val'); el.classList.add('val'); }
     else     { el.textContent = placeholder; el.classList.add('placeholder-val'); el.classList.remove('val'); }
   }
@@ -669,184 +722,226 @@ function syncFloorInfo() {
    電源計算
    ============================================================ */
 function calcPower() {
-  const total = parseInt(document.getElementById('totalPower').value) || 0;
-  const used  = parseInt(document.getElementById('usedPower').value)  || 0;
+  var total = parseInt(document.getElementById('totalPower').value) || 0;
+  var used  = parseInt(document.getElementById('usedPower').value)  || 0;
   document.getElementById('freePower').textContent = Math.max(0, total - used);
 }
 
 /* ============================================================
-   設置スペース選択で理由欄を表示切替
+   設置スペース 選択で理由欄を表示切替
    ============================================================ */
 function onSpaceChange() {
-  const r = document.querySelector('input[name="space"]:checked');
-  document.getElementById('ngReasonCard').style.display = (r && r.value === 'ng') ? 'block' : 'none';
+  var r = document.querySelector('input[name="space"]:checked');
+  document.getElementById('ngReasonCard').style.display =
+    (r && r.value === 'ng') ? 'block' : 'none';
   onInput();
 }
 
 /* ============================================================
-   フロア概略図 画像読込・清書処理
+   フロア概略図 画像読込・線画処理
    ============================================================ */
-let floorLoaded = false;
-let floorCompressedBase64 = null; /* 再試行用に圧縮済みbase64を保持 */
+var floorLoaded = false;
+var GEMINI_KEY  = localStorage.getItem('geminiApiKey') || '';
 
-/* 画像をJPEG・100KB以下に圧縮して返す */
-function compressImage(dataUrl) {
-  const MAX    = 100 * 1024;
-  const MAX_PX = 1024;
-  return new Promise(function (resolve, reject) {
-    const img = new Image();
-    img.onerror = function () { reject(new Error('画像の読み込みに失敗しました')); };
-    img.onload = function () {
-      let w = img.naturalWidth, h = img.naturalHeight;
-      if (w > MAX_PX || h > MAX_PX) {
-        const s = Math.min(MAX_PX / w, MAX_PX / h);
-        w = Math.round(w * s);
-        h = Math.round(h * s);
-      }
-      function tryCompress(cw, ch, quality) {
-        const c = document.createElement('canvas');
-        c.width  = cw;
-        c.height = ch;
-        c.getContext('2d').drawImage(img, 0, 0, cw, ch);
-        const result = c.toDataURL('image/jpeg', quality);
-        if (result.length * 0.75 <= MAX || (quality <= 0.3 && cw < 200)) {
-          resolve(result);
-          return;
-        }
-        if (quality > 0.3) {
-          tryCompress(cw, ch, Math.max(0.3, quality - 0.1));
-        } else {
-          tryCompress(Math.round(cw * 0.8), Math.round(ch * 0.8), 0.7);
-        }
-      }
-      tryCompress(w, h, 0.85);
-    };
-    img.src = dataUrl;
-  });
+/* 設定モーダル開閉 */
+function openSettings() {
+  document.getElementById('settingsModal').classList.add('open');
+}
+function closeSettings() {
+  document.getElementById('settingsModal').classList.remove('open');
 }
 
-/* ブラウザからGeminiに直接リクエストし、清書画像のdataURLを返す（タイムアウトなし） */
-async function callGeminiSeisho(base64Data, mimeType) {
-  const apiKey = localStorage.getItem('geminiApiKey') || '';
-  if (!apiKey) throw new Error('GeminiのAPIキーが設定されていません。上のAPIキー欄に入力してください。');
+/* APIキーを保存 */
+function saveGeminiKey() {
+  var key = document.getElementById('geminiKeyInput').value.trim();
+  GEMINI_KEY = key;
+  localStorage.setItem('geminiApiKey', key);
+  var st = document.getElementById('geminiKeyStatus');
+  st.textContent = key ? '保存しました ✓' : '削除しました';
+  st.style.color  = key ? '#2d8a45' : '#888';
+  setTimeout(function () { st.textContent = ''; }, 2000);
+}
 
-  const prompt =
-    'この手書きの平面図を、CAD図面のように整然とした清書された建築平面図として描き直してください。' +
-    '白背景に黒い線のみで描いてください。色は一切使わず、白と黒だけで表現してください。' +
-    '直線の壁、明確な部屋の境界線、読みやすい日本語の部屋名ラベルを描いてください。' +
-    '手書き風の線は不要です。';
-
-  /* 画像生成対応モデルを順に試す（タイムアウトなし・完成まで待機） */
-  const models = [
-    { ver: 'v1beta', name: 'gemini-2.0-flash' },
-    { ver: 'v1beta', name: 'gemini-2.5-flash' },
-    { ver: 'v1beta', name: 'gemini-2.5-pro'   },
+/* Gemini Vision で間取りを解析し部屋情報 JSON を返す */
+async function analyzeFloorWithGemini(base64Data, mimeType) {
+  var candidates = [
+    { ver: 'v1',     model: 'gemini-2.5-flash' },
+    { ver: 'v1',     model: 'gemini-2.0-flash' },
+    { ver: 'v1beta', model: 'gemini-2.5-flash' },
+    { ver: 'v1beta', model: 'gemini-2.0-flash' },
   ];
-
-  const errors = []; /* 各モデルの実際のエラーを収集して表示する */
-
-  for (const model of models) {
+  var prompt =
+    'この手書き平面図の各部屋・スペースを分析してください。\n' +
+    '以下のJSON形式のみを出力してください。コードブロック（```）や説明文は不要です。\n\n' +
+    '{"rooms":[{"name":"部屋名","x":数値,"y":数値,"w":数値,"h":数値}]}\n\n' +
+    'ルール：x,yは左上原点からの相対位置（グリッド単位）、w,hは幅・高さ（グリッド単位）。' +
+    '隣接する部屋は座標が連続するようにしてください。1グリッド≈1〜2メートル。' +
+    '部屋名が読み取れない場合は「部屋」としてください。';
+  var body = {
+    contents: [{ parts: [
+      { text: prompt },
+      { inlineData: { mimeType: mimeType, data: base64Data } }
+    ]}]
+  };
+  var lastErr = '試したモデルが全て失敗しました';
+  for (var i = 0; i < candidates.length; i++) {
+    var c   = candidates[i];
+    var url = 'https://generativelanguage.googleapis.com/' + c.ver + '/models/' + c.model + ':generateContent?key=' + GEMINI_KEY;
     try {
-      const url = 'https://generativelanguage.googleapis.com/' + model.ver + '/models/' + model.name + ':generateContent?key=' + apiKey;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [
-            { text: prompt },
-            { inlineData: { mimeType: mimeType, data: base64Data } }
-          ]}],
-          /* 【修正】TEXT を先に指定しないと画像が返らない */
-          generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }
-        })
-      });
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(function () { return {}; });
-        const apiMsg = (errJson.error && errJson.error.message) || res.statusText;
-        const detail = model.name + ' → HTTP ' + res.status + ': ' + apiMsg;
-        errors.push(detail);
-        console.warn('[Gemini失敗]', detail);
-        continue; /* 次のモデルへ */
-      }
-
-      const json = await res.json();
-      const candidate = json.candidates && json.candidates[0];
-      const parts = (candidate && candidate.content && candidate.content.parts) || [];
-      for (const part of parts) {
-        if (part.inlineData && part.inlineData.data) {
-          return 'data:' + (part.inlineData.mimeType || 'image/png') + ';base64,' + part.inlineData.data;
-        }
-      }
-      /* 200 OKだが画像データが含まれない場合（finishReasonなど） */
-      const finishReason = (candidate && candidate.finishReason) || '不明';
-      const detail2 = model.name + ' → 画像データなし (finishReason: ' + finishReason + ')';
-      errors.push(detail2);
-      console.warn('[Gemini]', detail2, JSON.stringify(json).substring(0, 400));
-
+      var res  = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      var json = await res.json();
+      if (!res.ok) { lastErr = (json.error && json.error.message) || ('HTTP ' + res.status); continue; }
+      var text = json.candidates && json.candidates[0] && json.candidates[0].content &&
+                 json.candidates[0].content.parts && json.candidates[0].content.parts[0].text;
+      if (!text) { lastErr = '応答にテキストが含まれていません'; continue; }
+      text = text.replace(/```[a-z]*\n?/g, '').replace(/```/g, '').trim();
+      var m = text.match(/\{[\s\S]*\}/);
+      if (!m) { lastErr = 'JSON形式の応答が得られませんでした'; continue; }
+      return JSON.parse(m[0]);
     } catch (e) {
-      /* ネットワークエラー・CORSエラーなど */
-      const detail = model.name + ' → ' + e.message;
-      errors.push(detail);
-      console.warn('[Geminiエラー]', detail);
+      lastErr = e.message;
     }
   }
+  throw new Error(lastErr);
+}
 
-  /* 全モデル失敗：実際のエラー内容を表示する */
-  throw new Error(errors.length > 0 ? errors.join('\n') : 'Geminiによる清書に失敗しました');
+/* Canvas で整った間取り線画を描画する */
+function drawCleanPlan(canvas, rooms) {
+  var W = 900, H = 640;
+  canvas.width  = W;
+  canvas.height = H;
+  var ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+
+  if (!rooms || rooms.length === 0) {
+    ctx.fillStyle = '#bbb';
+    ctx.font = '15px Meiryo, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('部屋情報を取得できませんでした', W / 2, H / 2);
+    return;
+  }
+
+  var minX = Math.min.apply(null, rooms.map(function (r) { return r.x; }));
+  var minY = Math.min.apply(null, rooms.map(function (r) { return r.y; }));
+  var maxX = Math.max.apply(null, rooms.map(function (r) { return r.x + r.w; }));
+  var maxY = Math.max.apply(null, rooms.map(function (r) { return r.y + r.h; }));
+  var totalW = maxX - minX || 1;
+  var totalH = maxY - minY || 1;
+
+  var pad   = 80;
+  var scale = Math.min((W - pad * 2) / totalW, (H - pad * 2 - 30) / totalH);
+  var offX  = (W - totalW * scale) / 2;
+  var offY  = (H - 30 - totalH * scale) / 2;
+  var innerWall = Math.max(1.5, scale * 0.08);
+  var outerWall = Math.max(4,   scale * 0.18);
+
+  /* 床面（薄グレー） */
+  rooms.forEach(function (room) {
+    var rx = offX + (room.x - minX) * scale;
+    var ry = offY + (room.y - minY) * scale;
+    ctx.fillStyle = '#f5f5f5';
+    ctx.fillRect(rx, ry, room.w * scale, room.h * scale);
+  });
+  /* 間仕切り壁 */
+  ctx.strokeStyle = '#222222';
+  ctx.lineWidth   = innerWall;
+  ctx.lineJoin    = 'miter';
+  rooms.forEach(function (room) {
+    ctx.strokeRect(
+      offX + (room.x - minX) * scale, offY + (room.y - minY) * scale,
+      room.w * scale, room.h * scale
+    );
+  });
+  /* 外周壁 */
+  ctx.strokeStyle = '#000000';
+  ctx.lineWidth   = outerWall;
+  ctx.strokeRect(offX, offY, totalW * scale, totalH * scale);
+  /* 部屋名ラベル */
+  rooms.forEach(function (room) {
+    var rx = offX + (room.x - minX) * scale;
+    var ry = offY + (room.y - minY) * scale;
+    var rw = room.w * scale;
+    var rh = room.h * scale;
+    var fs = Math.min(15, Math.max(9, Math.min(rw * 0.2, rh * 0.28)));
+    ctx.fillStyle    = '#222222';
+    ctx.font         = 'bold ' + fs + 'px "Hiragino Kaku Gothic ProN", Meiryo, sans-serif';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(room.name, rx + rw / 2, ry + rh / 2, rw - 8);
+  });
+  /* キャプション */
+  ctx.fillStyle    = '#aaa';
+  ctx.font         = '11px Meiryo, sans-serif';
+  ctx.textAlign    = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('フロア概略図（AI線画）', W / 2, H - 4);
 }
 
 function loadFloor(evt) {
-  const file = evt.target.files[0];
+  var file = evt.target.files[0];
   if (!file) return;
-  const reader = new FileReader();
+  var reader = new FileReader();
   reader.onload = function (e) {
-    const canvas  = document.getElementById('floorCanvas');
-    const loading = document.getElementById('seishoLoading');
-    const empty   = document.getElementById('seishoEmpty');
-    const errDiv  = document.getElementById('seishoError');
-    const errMsg  = document.getElementById('seishoErrorMsg');
-    empty.style.display  = 'none';
-    errDiv.style.display = 'none';
-    canvas.style.display = 'none';
-    loading.classList.add('active');
+    var origImg = document.getElementById('floorOriginalImg');
+    origImg.src = e.target.result;
+    origImg.style.display = 'block';
+    document.getElementById('dropZone').style.display = 'none';
+    floorLoaded = true;
+    syncFloorInfo();
 
-    compressImage(e.target.result).then(function (compressed) {
-      const origImg = document.getElementById('floorOriginalImg');
-      origImg.src = compressed;
-      origImg.style.display = 'block';
-      document.getElementById('dropZone').style.display = 'none';
-      floorLoaded = true;
-      /* 再試行用にbase64を保持 */
-      floorCompressedBase64 = compressed.split(',')[1];
-      syncFloorInfo();
-      return callGeminiSeisho(floorCompressedBase64, 'image/jpeg');
-    }).then(function (dataUrl) {
-      loading.classList.remove('active');
-      const img = new Image();
-      img.onload = function () {
-        canvas.width  = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        canvas.getContext('2d').drawImage(img, 0, 0);
-        canvas.style.display = 'block';
+    var canvas  = document.getElementById('floorCanvas');
+    var loading = document.getElementById('seishoLoading');
+    var empty   = document.getElementById('seishoEmpty');
+    var errDiv  = document.getElementById('seishoError');
+    var errMsg  = document.getElementById('seishoErrorMsg');
+    [empty, errDiv].forEach(function (el) { el.style.display = 'none'; });
+    canvas.style.display = 'none';
+
+    /* APIキー未設定時は元画像を canvas に保持してガイドを表示 */
+    if (!GEMINI_KEY) {
+      errMsg.style.color = '#888';
+      errMsg.textContent = '右上の ⚙ 設定から API キーを設定すると間取り線画を生成します';
+      errDiv.style.display = '';
+      var tmp = new Image();
+      tmp.onload = function () {
+        canvas.width  = tmp.naturalWidth;
+        canvas.height = tmp.naturalHeight;
+        canvas.getContext('2d').drawImage(tmp, 0, 0);
       };
-      img.src = dataUrl;
+      tmp.src = e.target.result;
+      return;
+    }
+
+    /* Gemini Vision → Canvas で線画生成 */
+    loading.classList.add('active');
+    var base64   = e.target.result.split(',')[1];
+    var mimeType = file.type || 'image/jpeg';
+
+    analyzeFloorWithGemini(base64, mimeType).then(function (data) {
+      loading.classList.remove('active');
+      drawCleanPlan(canvas, data.rooms || []);
+      canvas.style.display = 'block';
     }).catch(function (err) {
       loading.classList.remove('active');
-      console.error('[清書エラー]', err.message);
-      errMsg.textContent   = err.message;
+      errMsg.style.color = '#c0392b';
+      errMsg.textContent = 'エラー: ' + err.message;
       errDiv.style.display = '';
+      console.error('[AI線画エラー]', err.message);
     });
   };
   reader.readAsDataURL(file);
 }
 
 function clearFloor() {
-  const origImg = document.getElementById('floorOriginalImg');
+  /* 手書き画像エリアをリセット */
+  var origImg = document.getElementById('floorOriginalImg');
   origImg.src = '';
   origImg.style.display = 'none';
   document.getElementById('dropZone').style.display = '';
-  const canvas = document.getElementById('floorCanvas');
+  /* 清書プレビューをリセット */
+  var canvas = document.getElementById('floorCanvas');
   canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
   canvas.style.display = 'none';
   document.getElementById('seishoLoading').classList.remove('active');
@@ -854,99 +949,56 @@ function clearFloor() {
   document.getElementById('seishoError').style.display = 'none';
   document.getElementById('floorFileInput').value = '';
   floorLoaded = false;
-  floorCompressedBase64 = null;
-}
-
-/* 清書失敗時に再試行する（圧縮済み画像を再利用） */
-function retrySeisho() {
-  if (!floorCompressedBase64) return;
-  const canvas  = document.getElementById('floorCanvas');
-  const loading = document.getElementById('seishoLoading');
-  const errDiv  = document.getElementById('seishoError');
-  errDiv.style.display = 'none';
-  canvas.style.display = 'none';
-  loading.classList.add('active');
-  callGeminiSeisho(floorCompressedBase64, 'image/jpeg')
-    .then(function (dataUrl) {
-      loading.classList.remove('active');
-      const img = new Image();
-      img.onload = function () {
-        canvas.width  = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        canvas.getContext('2d').drawImage(img, 0, 0);
-        canvas.style.display = 'block';
-      };
-      img.src = dataUrl;
-    })
-    .catch(function (err) {
-      loading.classList.remove('active');
-      document.getElementById('seishoErrorMsg').textContent = err.message;
-      errDiv.style.display = '';
-    });
-}
-
-/* Gemini APIキーをlocalStorageに保存・復元する */
-function saveGeminiKey() {
-  const key    = document.getElementById('geminiKeyInput').value.trim();
-  const status = document.getElementById('geminiKeyStatus');
-  if (key) {
-    localStorage.setItem('geminiApiKey', key);
-    status.textContent = '保存済み';
-  } else {
-    localStorage.removeItem('geminiApiKey');
-    status.textContent = '';
-  }
 }
 
 /* ============================================================
-   現地写真
+   現地写真  ※ 丸数字なし
    ============================================================ */
-const defaultTargets = [
-  '撮影対象①', '撮影対象②', '撮影対象③', '撮影対象④',
-  '撮影対象⑤', '撮影対象⑥', '撮影対象⑦', '撮影対象⑧'
+var defaultTargets = [
+  '撮影対象①','撮影対象②','撮影対象③','撮影対象④',
+  '撮影対象⑤','撮影対象⑥','撮影対象⑦','撮影対象⑧'
 ];
-let photoUploaded = 0;
-let totalSlots    = 8;
+var photoUploaded = 0;
+var totalSlots = 8;
 
 function makePhotoCard(name) {
-  const card = document.createElement('div');
+  var card = document.createElement('div');
   card.className = 'photo-card';
 
-  const drop = document.createElement('div');
+  var drop = document.createElement('div');
   drop.className = 'photo-drop';
 
-  const inp = document.createElement('input');
+  var inp = document.createElement('input');
   inp.type = 'file'; inp.accept = 'image/*';
 
-  const hint = document.createElement('div');
+  var hint = document.createElement('div');
   hint.className = 'photo-drop-hint';
   hint.innerHTML = '<span class="plus">+</span>タップして追加';
 
   drop.appendChild(inp);
   drop.appendChild(hint);
 
-  const labelRow  = document.createElement('div');
+  var labelRow = document.createElement('div');
   labelRow.className = 'photo-label-row';
-  const nameSpan  = document.createElement('span');
+
+  var nameSpan = document.createElement('span');
   nameSpan.className = 'photo-name-text';
   nameSpan.textContent = name;
   labelRow.appendChild(nameSpan);
 
   inp.addEventListener('change', function (e) {
-    const f = e.target.files[0];
+    var f = e.target.files[0];
     if (!f) return;
-    const reader = new FileReader();
+    var reader = new FileReader();
     reader.onload = function (ev) {
-      compressImage(ev.target.result).then(function (compressed) {
-        const old = drop.querySelector('img');
-        if (old) { old.remove(); photoUploaded--; }
-        const img = document.createElement('img');
-        img.className = 'photo-img'; img.src = compressed;
-        drop.appendChild(img);
-        hint.classList.add('hidden');
-        photoUploaded++;
-        updatePhotoCount();
-      });
+      var old = drop.querySelector('img');
+      if (old) { old.remove(); photoUploaded--; }
+      var img = document.createElement('img');
+      img.className = 'photo-img'; img.src = ev.target.result;
+      drop.appendChild(img);
+      hint.classList.add('hidden');
+      photoUploaded++;
+      updatePhotoCount();
     };
     reader.readAsDataURL(f);
   });
@@ -963,13 +1015,13 @@ function updatePhotoCount() {
 
 function addPhotoSlot() {
   totalSlots++;
-  const extraNum = totalSlots - 8;
+  var extraNum = totalSlots - 8;
   document.getElementById('photoGrid').appendChild(makePhotoCard('追加写真 ' + extraNum));
   updatePhotoCount();
 }
 
 (function initPhotos() {
-  const grid = document.getElementById('photoGrid');
+  var grid = document.getElementById('photoGrid');
   defaultTargets.forEach(function (name) { grid.appendChild(makePhotoCard(name)); });
   updatePhotoCount();
 })();
@@ -978,7 +1030,7 @@ function addPhotoSlot() {
    出力タブ 内容同期
    ============================================================ */
 function updateExport() {
-  const g = function (id) { return document.getElementById(id).value.trim() || '—'; };
+  var g = function (id) { return document.getElementById(id).value.trim() || '—'; };
   document.getElementById('c-customer').textContent  = g('customerName');
   document.getElementById('c-branch').textContent    = g('branchName');
   document.getElementById('c-mgmt').textContent      = g('managementNo');
@@ -988,7 +1040,7 @@ function updateExport() {
   document.getElementById('c-required').textContent  = document.getElementById('requiredPower').value || '0';
   document.getElementById('c-used').textContent      = document.getElementById('usedPower').value || '0';
   document.getElementById('c-free').textContent      = document.getElementById('freePower').textContent || '0';
-  const spaceVal = document.querySelector('input[name="space"]:checked');
+  var spaceVal = document.querySelector('input[name="space"]:checked');
   document.getElementById('c-space').textContent    = spaceVal ? (spaceVal.value === 'ok' ? '設置可能' : '設置不可') : '未選択';
   document.getElementById('c-ngreason').textContent = document.getElementById('ngReason').value.trim() || '—';
   document.getElementById('c-remarks').textContent  = document.getElementById('remarks').value.trim() || '—';
@@ -999,16 +1051,16 @@ function updateExport() {
 /* ============================================================
    フォーマット選択
    ============================================================ */
-let currentFmt = 'excel';
+var currentFmt = 'excel';
 
 function selectFmt(btn, fmt) {
-  document.querySelectorAll('.fmt-tab').forEach(function (b) { b.classList.remove('active'); });
+  document.querySelectorAll('.fmt-tab').forEach(function(b){ b.classList.remove('active'); });
   btn.classList.add('active');
   currentFmt = fmt;
 }
 
 function getData() {
-  const r = document.querySelector('input[name="space"]:checked');
+  var r = document.querySelector('input[name="space"]:checked');
   return {
     customer : document.getElementById('customerName').value.trim(),
     branch   : document.getElementById('branchName').value.trim(),
@@ -1027,28 +1079,27 @@ function getData() {
 }
 
 function getTodayStr() {
-  const d   = new Date();
-  const y   = d.getFullYear();
-  const m   = ('0' + (d.getMonth() + 1)).slice(-2);
-  const day = ('0' + d.getDate()).slice(-2);
+  var d = new Date();
+  var y = d.getFullYear();
+  var m = ('0' + (d.getMonth() + 1)).slice(-2);
+  var day = ('0' + d.getDate()).slice(-2);
   return y + m + day;
 }
 
 function saveData() {
   updateExport();
-  buildDocPage();
-  const d    = getData();
-  const base = '完成図書_' + getTodayStr();
-  if      (currentFmt === 'excel') saveAsExcel(d, base);
-  else if (currentFmt === 'ppt')   saveAsPPT(d, base);
-  else if (currentFmt === 'word')  saveAsWord(d, base);
-  else if (currentFmt === 'pdf')   saveAsPDF();
+  var d = getData();
+  var base = '完成図書_' + getTodayStr();
+  if (currentFmt === 'excel') saveAsExcel(d, base);
+  else if (currentFmt === 'ppt')  saveAsPPT(d, base);
+  else if (currentFmt === 'word') saveAsWord(d, base);
+  else if (currentFmt === 'pdf')  saveAsPDF();
 }
 
 /* ---------- Excel 保存 ---------- */
 function saveAsExcel(d, base) {
-  const wb   = XLSX.utils.book_new();
-  const rows = [
+  var wb = XLSX.utils.book_new();
+  var rows = [
     ['完成図書'], [''],
     ['【基本情報】'], ['お客様名', d.customer], ['拠点名', d.branch],
     ['管理番号', d.mgmt], ['実施日', d.date], ['実施担当者', d.staff], [''],
@@ -1060,10 +1111,10 @@ function saveAsExcel(d, base) {
     ['【現地写真】'], ['写真枚数', d.photos + ' 枚'],
     ['フロア概略図', floorLoaded ? '取込済' : '未取込']
   ];
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{ wch: 20 }, { wch: 35 }, { wch: 16 }, { wch: 16 }];
+  var ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:20},{wch:35},{wch:16},{wch:16}];
   XLSX.utils.book_append_sheet(wb, ws, '完成図書');
-  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  var wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   dlBlob(
     new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
     base + '.xlsx'
@@ -1072,10 +1123,10 @@ function saveAsExcel(d, base) {
 
 /* 現地写真収集（src + ラベル名） */
 function collectPhotos() {
-  const photos = [];
+  var photos = [];
   document.querySelectorAll('#photoGrid .photo-card').forEach(function (card) {
-    const img    = card.querySelector('img.photo-img');
-    const nameEl = card.querySelector('.photo-name-text');
+    var img    = card.querySelector('img.photo-img');
+    var nameEl = card.querySelector('.photo-name-text');
     if (img && img.src && img.src.indexOf('data:') === 0) {
       photos.push({ src: img.src, name: nameEl ? nameEl.textContent.trim() : '' });
     }
@@ -1083,10 +1134,10 @@ function collectPhotos() {
   return photos;
 }
 
-/* Blobダウンロード共通処理 */
+/* Blob ダウンロード共通処理 */
 function dlBlob(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a   = document.createElement('a');
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
   a.href = url; a.download = filename;
   document.body.appendChild(a); a.click();
   document.body.removeChild(a);
@@ -1095,13 +1146,13 @@ function dlBlob(blob, filename) {
 
 /* ---------- PowerPoint 保存 ---------- */
 function saveAsPPT(d, base) {
-  const pptx  = new PptxGenJS();
+  var pptx = new PptxGenJS();
   pptx.layout = 'LAYOUT_WIDE';
-  const slide = pptx.addSlide();
+  var slide = pptx.addSlide();
 
   slide.addText('完成図書', { x: 0.5, y: 0.2, w: '90%', h: 0.8, fontSize: 28, bold: true, color: 'C0392B', align: 'center' });
 
-  const tableRows = [
+  var tableRows = [
     [{ text: '項目', options: { bold: true, fill: 'C0392B', color: 'FFFFFF' } },
      { text: '内容', options: { bold: true, fill: 'C0392B', color: 'FFFFFF' } }],
     ['お客様名', d.customer || '—'], ['拠点名', d.branch || '—'],
@@ -1116,36 +1167,40 @@ function saveAsPPT(d, base) {
   slide.addTable(tableRows, { x: 0.5, y: 1.2, w: 9, colW: [3, 6], rowH: 0.3, fontSize: 12, border: { type: 'solid', color: 'DDDDDD', pt: 1 } });
 
   if (floorLoaded) {
-    const canvas = document.getElementById('floorCanvas');
-    const slide2 = pptx.addSlide();
+    var canvas = document.getElementById('floorCanvas');
+    var imgData = canvas.toDataURL('image/png');
+    var slide2 = pptx.addSlide();
     slide2.addText('フロア概略図', { x: 0.5, y: 0.2, w: '90%', h: 0.6, fontSize: 20, bold: true, color: 'C0392B' });
     slide2.addText('お客様名：' + (d.customer || '－') + '　拠点名：' + (d.branch || '－'),
       { x: 0.5, y: 0.8, w: '90%', h: 0.4, fontSize: 12, color: '666666' });
-    slide2.addImage({ data: canvas.toDataURL('image/png'), x: 0.5, y: 1.3, w: 9, h: 5 });
+    slide2.addImage({ data: imgData, x: 0.5, y: 1.3, w: 9, h: 5 });
   }
 
-  const photos     = collectPhotos();
-  const pPositions = [
+  /* 現地写真スライド（4枚/スライド） */
+  var photos = collectPhotos();
+  var pPositions = [
     { x: 0.2, y: 0.7 }, { x: 6.8, y: 0.7 },
     { x: 0.2, y: 3.9 }, { x: 6.8, y: 3.9 }
   ];
-  for (let pi = 0; pi < photos.length; pi += 4) {
-    const ps = pptx.addSlide();
+  for (var pi = 0; pi < photos.length; pi += 4) {
+    var ps = pptx.addSlide();
     ps.addText('現地写真', { x: 0.2, y: 0.1, w: '90%', h: 0.5, fontSize: 16, bold: true, color: 'C0392B' });
-    for (let pj = 0; pj < 4 && (pi + pj) < photos.length; pj++) {
-      const ph  = photos[pi + pj];
-      const pos = pPositions[pj];
+    for (var pj = 0; pj < 4 && (pi + pj) < photos.length; pj++) {
+      var ph  = photos[pi + pj];
+      var pos = pPositions[pj];
       try { ps.addImage({ data: ph.src, x: pos.x, y: pos.y, w: 6.1, h: 2.7 }); } catch (e) {}
       ps.addText(ph.name, { x: pos.x, y: pos.y + 2.75, w: 6.1, h: 0.25, fontSize: 9, color: '555555', align: 'center' });
     }
   }
 
-  pptx.write('blob').then(function (blob) { dlBlob(blob, base + '.pptx'); });
+  pptx.write('blob').then(function (blob) {
+    dlBlob(blob, base + '.pptx');
+  });
 }
 
 /* ---------- Word 保存（HTML→.doc） ---------- */
 function saveAsWord(d, base) {
-  let html = '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
+  var html = '<!DOCTYPE html><html><head><meta charset="UTF-8">' +
     '<style>body{font-family:Meiryo,sans-serif;font-size:11pt;margin:2cm;}' +
     'h1{color:#c0392b;border-bottom:2px solid #c0392b;padding-bottom:6px;}' +
     'h2{color:#c0392b;font-size:12pt;margin-top:16pt;}' +
@@ -1164,12 +1219,14 @@ function saveAsWord(d, base) {
   html += wtr('設置スペース', d.space) + wtr('設置不可理由', d.ngreason || '—') + wtr('備考', d.remarks || '—');
   html += '</table>';
   if (floorLoaded) {
+    var floorImg = document.getElementById('floorCanvas').toDataURL('image/png');
     html += '<h2>フロア概略図</h2>';
-    html += '<img src="' + document.getElementById('floorCanvas').toDataURL('image/png') + '" style="max-width:100%;border:1px solid #ddd;">';
+    html += '<img src="' + floorImg + '" style="max-width:100%;border:1px solid #ddd;">';
   }
-  const wPhotos = collectPhotos();
+  var wPhotos = collectPhotos();
   if (wPhotos.length > 0) {
-    html += '<h2>現地写真</h2><div style="display:flex;flex-wrap:wrap;gap:8pt;">';
+    html += '<h2>現地写真</h2>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:8pt;">';
     wPhotos.forEach(function (p) {
       html += '<div style="width:48%;margin-bottom:8pt;">';
       html += '<img src="' + p.src + '" style="width:100%;border:1px solid #ddd;">';
@@ -1179,7 +1236,9 @@ function saveAsWord(d, base) {
     html += '</div>';
   }
   html += '</body></html>';
-  dlBlob(new Blob([html], { type: 'application/msword;charset=utf-8' }), base + '.doc');
+
+  var blob = new Blob([html], { type: 'application/msword;charset=utf-8' });
+  dlBlob(blob, base + '.doc');
 }
 
 function wtr(label, val) {
@@ -1190,11 +1249,13 @@ function wtr(label, val) {
 function saveAsPDF() {
   buildDocPage();
   document.getElementById('previewModal').classList.add('open');
-  setTimeout(function () { window.print(); }, 400);
+  setTimeout(function() {
+    window.print();
+  }, 400);
 }
 
 /* ============================================================
-   完成図書プレビューモーダル
+   完成図書 プレビューモーダル
    ============================================================ */
 function openPreview() {
   updateExport();
@@ -1209,41 +1270,53 @@ function closePreview() {
 document.getElementById('previewModal').addEventListener('click', function (e) {
   if (e.target === this) closePreview();
 });
+document.getElementById('settingsModal').addEventListener('click', function (e) {
+  if (e.target === this) closeSettings();
+});
 
 function buildDocPage() {
-  const d          = getData();
-  const canvas     = document.getElementById('floorCanvas');
-  const floorImgSrc = floorLoaded ? canvas.toDataURL('image/png') : null;
+  var d = getData();
+  var canvas = document.getElementById('floorCanvas');
+  var floorImgSrc = floorLoaded ? canvas.toDataURL('image/png') : null;
 
-  const photos = [];
+  var photos = [];
   document.querySelectorAll('#photoGrid .photo-card').forEach(function (card) {
-    const img  = card.querySelector('img.photo-img');
-    const name = card.querySelector('.photo-name-text');
+    var img  = card.querySelector('img.photo-img');
+    var name = card.querySelector('.photo-name-text');
     photos.push({ src: img ? img.src : null, name: name ? name.textContent : '' });
   });
 
-  let html = '';
+  var html = '';
 
+  /* タイトル */
   html += '<div class="doc-title">完&nbsp;成&nbsp;図&nbsp;書</div>';
 
-  html += '<div class="doc-section"><div class="doc-section-title">基本情報</div><table class="doc-table">';
+  /* 基本情報 */
+  html += '<div class="doc-section">';
+  html += '<div class="doc-section-title">基本情報</div>';
+  html += '<table class="doc-table">';
   html += row2('お客様名', d.customer) + row2('拠点名', d.branch) +
-          row2('管理番号', d.mgmt)     + row2('実施日', d.date) + row2('実施担当者', d.staff);
+          row2('管理番号', d.mgmt)   + row2('実施日', d.date) + row2('実施担当者', d.staff);
   html += '</table></div>';
 
-  html += '<div class="doc-section"><div class="doc-section-title">電源情報</div>';
+  /* 電源情報 */
+  html += '<div class="doc-section">';
+  html += '<div class="doc-section-title">電源情報</div>';
   html += '<div class="doc-power-row">';
   html += pcard('電源数', d.total) + pcard('必要電源数', d.required) +
           pcard('使用した電源数', d.used) + pcard('空き電源数', d.free);
-  html += '</div><div style="margin-top:10px;"><table class="doc-table">';
+  html += '</div>';
+  html += '<div style="margin-top:10px;"><table class="doc-table">';
   html += row2('機器設置スペース', d.space);
   if (d.ngreason) html += row2('設置不可理由', d.ngreason);
   if (d.remarks)  html += row2('備考', d.remarks);
   html += '</table></div></div>';
 
-  html += '<div class="doc-section"><div class="doc-section-title">フロア概略図</div>';
+  /* フロア概略図 */
+  html += '<div class="doc-section">';
+  html += '<div class="doc-section-title">フロア概略図</div>';
   if (floorImgSrc) {
-    html += '<div style="border:1px solid #ddd;border-radius:4px;overflow:hidden;">';
+    html += '<div style="border:1px solid #ddd; border-radius:4px; overflow:hidden;">';
     html += '<div class="doc-floor-header"><span>お客様名：' + (d.customer || '－') + '</span><span>拠点名：' + (d.branch || '－') + '</span></div>';
     html += '<img src="' + floorImgSrc + '" class="doc-floor-img">';
     html += '</div>';
@@ -1252,11 +1325,17 @@ function buildDocPage() {
   }
   html += '</div>';
 
-  html += '<div class="doc-section"><div class="doc-section-title">現地写真（' + d.photos + '枚）</div>';
+  /* 現地写真 */
+  html += '<div class="doc-section">';
+  html += '<div class="doc-section-title">現地写真（' + d.photos + '枚）</div>';
   html += '<div class="doc-photo-grid">';
   photos.forEach(function (p) {
     html += '<div class="doc-photo-item">';
-    html += p.src ? '<img src="' + p.src + '" class="doc-photo-img">' : '<div class="doc-photo-empty">未撮影</div>';
+    if (p.src) {
+      html += '<img src="' + p.src + '" class="doc-photo-img">';
+    } else {
+      html += '<div class="doc-photo-empty">未撮影</div>';
+    }
     html += '<div class="doc-photo-name">' + p.name + '</div>';
     html += '</div>';
   });
@@ -1271,6 +1350,12 @@ function row2(label, val) {
 function pcard(label, val) {
   return '<div class="doc-power-cell"><div class="lbl">' + label + '</div><div class="val">' + val + '</div></div>';
 }
+
+/* 起動時：保存済み API キーを設定モーダルの入力欄に復元 */
+(function () {
+  var saved = localStorage.getItem('geminiApiKey');
+  if (saved) document.getElementById('geminiKeyInput').value = saved;
+})();
 </script>
 
 </body>
