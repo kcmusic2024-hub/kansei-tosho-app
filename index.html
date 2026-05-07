@@ -742,46 +742,57 @@ async function callGeminiSeisho(base64Data, mimeType) {
     'gemini-2.0-flash-preview-image-generation',
   ];
 
+  const errors = []; /* 各モデルの実際のエラーを収集して表示する */
+
   for (const model of models) {
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + apiKey;
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [
             { text: prompt },
-            { inlineData: { mimeType, data: base64Data } }
+            { inlineData: { mimeType: mimeType, data: base64Data } }
           ]}],
-          generationConfig: { responseModalities: ['IMAGE', 'TEXT'] }
+          /* 【修正】TEXT を先に指定しないと画像が返らない */
+          generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }
         })
       });
 
       if (!res.ok) {
         const errJson = await res.json().catch(function () { return {}; });
-        const msg = errJson?.error?.message || res.statusText;
-        console.warn('[Gemini失敗]', model, res.status, msg);
-        /* APIキーが無効な場合はすぐに中断 */
-        if (res.status === 400 || res.status === 403) {
-          throw new Error('APIキーが無効か、このモデルへのアクセス権がありません: ' + msg);
-        }
-        continue;
+        const apiMsg = (errJson.error && errJson.error.message) || res.statusText;
+        const detail = model + ' → HTTP ' + res.status + ': ' + apiMsg;
+        errors.push(detail);
+        console.warn('[Gemini失敗]', detail);
+        continue; /* 次のモデルへ */
       }
 
       const json = await res.json();
-      const parts = json.candidates?.[0]?.content?.parts || [];
+      const candidate = json.candidates && json.candidates[0];
+      const parts = (candidate && candidate.content && candidate.content.parts) || [];
       for (const part of parts) {
-        if (part.inlineData?.data) {
+        if (part.inlineData && part.inlineData.data) {
           return 'data:' + (part.inlineData.mimeType || 'image/png') + ';base64,' + part.inlineData.data;
         }
       }
-      console.warn('[Gemini] 画像データなし:', model);
+      /* 200 OKだが画像データが含まれない場合（finishReasonなど） */
+      const finishReason = (candidate && candidate.finishReason) || '不明';
+      const detail2 = model + ' → 画像データなし (finishReason: ' + finishReason + ')';
+      errors.push(detail2);
+      console.warn('[Gemini]', detail2, JSON.stringify(json).substring(0, 400));
+
     } catch (e) {
-      if (e.message.startsWith('APIキーが')) throw e; /* 再スロー */
-      console.warn('[Geminiエラー]', model, e.message);
+      /* ネットワークエラー・CORSエラーなど */
+      const detail = model + ' → ' + e.message;
+      errors.push(detail);
+      console.warn('[Geminiエラー]', detail);
     }
   }
-  throw new Error('Geminiによる清書に失敗しました。再試行してください。');
+
+  /* 全モデル失敗：実際のエラー内容を表示する */
+  throw new Error(errors.length > 0 ? errors.join('\n') : 'Geminiによる清書に失敗しました');
 }
 
 function loadFloor(evt) {
