@@ -961,6 +961,34 @@ var defaultTargets = [
 var photoUploaded = 0;
 var totalSlots = 8;
 
+function compressPhoto(dataUrl) {
+  return new Promise(function (resolve) {
+    var img = new Image();
+    img.onload = function () {
+      var TARGET = 100 * 1024;
+      var MAX_LONG = 1200;
+      var w = img.naturalWidth, h = img.naturalHeight;
+      var long = Math.max(w, h);
+      if (long > MAX_LONG) {
+        w = Math.round(w * MAX_LONG / long);
+        h = Math.round(h * MAX_LONG / long);
+      }
+      var cv = document.createElement('canvas');
+      cv.width = w; cv.height = h;
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      var quality = 0.85, out;
+      do {
+        out = cv.toDataURL('image/jpeg', quality);
+        var bytes = Math.ceil((out.split(',')[1].length * 3) / 4);
+        if (bytes <= TARGET) break;
+        quality = Math.round((quality - 0.1) * 10) / 10;
+      } while (quality >= 0.1);
+      resolve(out);
+    };
+    img.src = dataUrl;
+  });
+}
+
 function makePhotoCard(name) {
   var card = document.createElement('div');
   card.className = 'photo-card';
@@ -991,14 +1019,16 @@ function makePhotoCard(name) {
     if (!f) return;
     var reader = new FileReader();
     reader.onload = function (ev) {
-      var old = drop.querySelector('img');
-      if (old) { old.remove(); photoUploaded--; }
-      var img = document.createElement('img');
-      img.className = 'photo-img'; img.src = ev.target.result;
-      drop.appendChild(img);
-      hint.classList.add('hidden');
-      photoUploaded++;
-      updatePhotoCount();
+      compressPhoto(ev.target.result).then(function (compressed) {
+        var old = drop.querySelector('img');
+        if (old) { old.remove(); photoUploaded--; }
+        var img = document.createElement('img');
+        img.className = 'photo-img'; img.src = compressed;
+        drop.appendChild(img);
+        hint.classList.add('hidden');
+        photoUploaded++;
+        updatePhotoCount();
+      });
     };
     reader.readAsDataURL(f);
   });
