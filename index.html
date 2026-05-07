@@ -712,19 +712,36 @@ function onSpaceChange() {
    ============================================================ */
 var floorLoaded = false;
 
-/* 大きな画像をリサイズしてサーバーへの送信サイズを抑える */
-function resizeImageForApi(dataUrl, maxPx) {
+/* 画像を1MB以下に圧縮して返す */
+function compressToUnderOneMB(dataUrl) {
+  var MAX = 1 * 1024 * 1024; /* 1MB */
   return new Promise(function (resolve) {
     var img = new Image();
     img.onload = function () {
       var w = img.naturalWidth, h = img.naturalHeight;
-      if (w <= maxPx && h <= maxPx) { resolve(dataUrl); return; }
-      var scale = Math.min(maxPx / w, maxPx / h);
-      var c = document.createElement('canvas');
-      c.width  = Math.round(w * scale);
-      c.height = Math.round(h * scale);
-      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-      resolve(c.toDataURL('image/jpeg', 0.85));
+      var quality = 0.85;
+      var scale   = 1.0;
+
+      function tryCompress() {
+        var c = document.createElement('canvas');
+        c.width  = Math.round(w * scale);
+        c.height = Math.round(h * scale);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        var result = c.toDataURL('image/jpeg', quality);
+        /* base64長 × 0.75 ≒ バイト数 */
+        if (result.length * 0.75 <= MAX || (quality <= 0.4 && scale <= 0.3)) {
+          resolve(result);
+          return;
+        }
+        if (quality > 0.5) {
+          quality = Math.max(0.4, quality - 0.15);
+        } else {
+          quality = 0.75;
+          scale   = Math.max(0.3, scale * 0.7);
+        }
+        tryCompress();
+      }
+      tryCompress();
     };
     img.src = dataUrl;
   });
@@ -886,14 +903,6 @@ function loadFloor(evt) {
   if (!file) return;
   var reader = new FileReader();
   reader.onload = function (e) {
-    /* 手書き画像を取り込みエリアに表示 */
-    var origImg = document.getElementById('floorOriginalImg');
-    origImg.src = e.target.result;
-    origImg.style.display = 'block';
-    document.getElementById('dropZone').style.display = 'none';
-    floorLoaded = true;
-    syncFloorInfo();
-
     var canvas  = document.getElementById('floorCanvas');
     var loading = document.getElementById('seishoLoading');
     var empty   = document.getElementById('seishoEmpty');
@@ -901,16 +910,19 @@ function loadFloor(evt) {
     var errMsg  = document.getElementById('seishoErrorMsg');
     [empty, errDiv].forEach(function (el) { el.style.display = 'none'; });
     canvas.style.display = 'none';
-
-    /* AIで清書してプレビューに表示 */
     loading.classList.add('active');
-    var mimeType = file.type || 'image/jpeg';
 
-    /* 大きな画像はリサイズしてからサーバーへ送信 */
-    resizeImageForApi(e.target.result, 1920).then(function (resized) {
-      var base64   = resized.split(',')[1];
-      var sendMime = resized.startsWith('data:image/jpeg') ? 'image/jpeg' : mimeType;
-      return callGeminiSeisho(base64, sendMime);
+    /* 1MB以下に圧縮してから表示・API送信 */
+    compressToUnderOneMB(e.target.result).then(function (compressed) {
+      var origImg = document.getElementById('floorOriginalImg');
+      origImg.src = compressed;
+      origImg.style.display = 'block';
+      document.getElementById('dropZone').style.display = 'none';
+      floorLoaded = true;
+      syncFloorInfo();
+
+      var base64 = compressed.split(',')[1];
+      return callGeminiSeisho(base64, 'image/jpeg');
     }).then(function (dataUrl) {
       loading.classList.remove('active');
       var img = new Image();
@@ -989,14 +1001,17 @@ function makePhotoCard(name) {
     if (!f) return;
     var reader = new FileReader();
     reader.onload = function (ev) {
-      var old = drop.querySelector('img');
-      if (old) { old.remove(); photoUploaded--; }
-      var img = document.createElement('img');
-      img.className = 'photo-img'; img.src = ev.target.result;
-      drop.appendChild(img);
-      hint.classList.add('hidden');
-      photoUploaded++;
-      updatePhotoCount();
+      /* 1MB以下に圧縮してから表示・保持 */
+      compressToUnderOneMB(ev.target.result).then(function (compressed) {
+        var old = drop.querySelector('img');
+        if (old) { old.remove(); photoUploaded--; }
+        var img = document.createElement('img');
+        img.className = 'photo-img'; img.src = compressed;
+        drop.appendChild(img);
+        hint.classList.add('hidden');
+        photoUploaded++;
+        updatePhotoCount();
+      });
     };
     reader.readAsDataURL(f);
   });
