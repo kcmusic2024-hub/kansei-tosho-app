@@ -983,7 +983,7 @@ function compressPhoto(dataUrl) {
         if (bytes <= TARGET) break;
         quality = Math.round((quality - 0.1) * 10) / 10;
       } while (quality >= 0.1);
-      resolve(out);
+      resolve({ dataUrl: out, w: w, h: h });
     };
     img.src = dataUrl;
   });
@@ -1019,11 +1019,12 @@ function makePhotoCard(name) {
     if (!f) return;
     var reader = new FileReader();
     reader.onload = function (ev) {
-      compressPhoto(ev.target.result).then(function (compressed) {
+      compressPhoto(ev.target.result).then(function (result) {
         var old = drop.querySelector('img');
         if (old) { old.remove(); photoUploaded--; }
         var img = document.createElement('img');
-        img.className = 'photo-img'; img.src = compressed;
+        img.className = 'photo-img'; img.src = result.dataUrl;
+        img.dataset.w = result.w; img.dataset.h = result.h;
         drop.appendChild(img);
         hint.classList.add('hidden');
         photoUploaded++;
@@ -1158,7 +1159,12 @@ function collectPhotos() {
     var img    = card.querySelector('img.photo-img');
     var nameEl = card.querySelector('.photo-name-text');
     if (img && img.src && img.src.indexOf('data:') === 0) {
-      photos.push({ src: img.src, name: nameEl ? nameEl.textContent.trim() : '' });
+      photos.push({
+        src:  img.src,
+        name: nameEl ? nameEl.textContent.trim() : '',
+        w:    parseInt(img.dataset.w) || img.naturalWidth || 0,
+        h:    parseInt(img.dataset.h) || img.naturalHeight || 0
+      });
     }
   });
   return photos;
@@ -1208,6 +1214,7 @@ function saveAsPPT(d, base) {
 
   /* 現地写真スライド（4枚/スライド） */
   var photos = collectPhotos();
+  var SLOT_W = 6.1, SLOT_H = 2.7;
   var pPositions = [
     { x: 0.2, y: 0.7 }, { x: 6.8, y: 0.7 },
     { x: 0.2, y: 3.9 }, { x: 6.8, y: 3.9 }
@@ -1218,8 +1225,14 @@ function saveAsPPT(d, base) {
     for (var pj = 0; pj < 4 && (pi + pj) < photos.length; pj++) {
       var ph  = photos[pi + pj];
       var pos = pPositions[pj];
-      try { ps.addImage({ data: ph.src, x: pos.x, y: pos.y, w: 6.1, h: 2.7 }); } catch (e) {}
-      ps.addText(ph.name, { x: pos.x, y: pos.y + 2.75, w: 6.1, h: 0.25, fontSize: 9, color: '555555', align: 'center' });
+      var fw = SLOT_W, fh = SLOT_H, ox = 0, oy = 0;
+      if (ph.w > 0 && ph.h > 0) {
+        var scale = Math.min(SLOT_W / ph.w, SLOT_H / ph.h);
+        fw = ph.w * scale; fh = ph.h * scale;
+        ox = (SLOT_W - fw) / 2; oy = (SLOT_H - fh) / 2;
+      }
+      try { ps.addImage({ data: ph.src, x: pos.x + ox, y: pos.y + oy, w: fw, h: fh }); } catch (e) {}
+      ps.addText(ph.name, { x: pos.x, y: pos.y + SLOT_H + 0.05, w: SLOT_W, h: 0.25, fontSize: 9, color: '555555', align: 'center' });
     }
   }
 
@@ -1259,7 +1272,7 @@ function saveAsWord(d, base) {
     html += '<div style="display:flex;flex-wrap:wrap;gap:8pt;">';
     wPhotos.forEach(function (p) {
       html += '<div style="width:48%;margin-bottom:8pt;">';
-      html += '<img src="' + p.src + '" style="width:100%;border:1px solid #ddd;">';
+      html += '<img src="' + p.src + '" style="width:100%;height:auto;border:1px solid #ddd;">';
       html += '<p style="font-size:9pt;color:#666;text-align:center;margin:2pt 0 0;">' + p.name + '</p>';
       html += '</div>';
     });
