@@ -4,13 +4,16 @@ module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  /* 診断用：GETで環境変数の有無だけ確認できる */
+  /* 診断用：GETで環境変数の有無を確認 */
   if (req.method === 'GET') {
     const key = process.env.GEMINI_API_KEY;
+    const allKeys = Object.keys(process.env).filter(k => !k.startsWith('npm_') && !k.startsWith('NODE'));
     return res.status(200).json({
       status: key ? 'ok' : 'missing',
       keyLength: key ? key.length : 0,
-      keyPrefix: key ? key.slice(0, 6) + '...' : null
+      keyPrefix: key ? key.slice(0, 6) + '...' : null,
+      envKeys: allKeys,
+      nodeVersion: process.version
     });
   }
 
