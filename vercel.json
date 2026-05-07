@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/gemini-seisho.js": {
+      "maxDuration": 30
+    }
+  }
+}
