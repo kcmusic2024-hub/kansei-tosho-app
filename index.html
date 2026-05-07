@@ -736,17 +736,18 @@ async function callGeminiSeisho(base64Data, mimeType) {
     '直線の壁、明確な部屋の境界線、読みやすい日本語の部屋名ラベルを描いてください。' +
     '手書き風の線は不要です。';
 
-  /* 画像生成モデルを順に試す（タイムアウトなし・完成まで待機） */
+  /* 画像生成対応モデルを順に試す（タイムアウトなし・完成まで待機） */
   const models = [
-    'gemini-2.0-flash-exp-image-generation',
-    'gemini-2.0-flash-preview-image-generation',
+    { ver: 'v1beta', name: 'gemini-2.0-flash' },
+    { ver: 'v1beta', name: 'gemini-2.5-flash' },
+    { ver: 'v1beta', name: 'gemini-2.5-pro'   },
   ];
 
   const errors = []; /* 各モデルの実際のエラーを収集して表示する */
 
   for (const model of models) {
     try {
-      const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + apiKey;
+      const url = 'https://generativelanguage.googleapis.com/' + model.ver + '/models/' + model.name + ':generateContent?key=' + apiKey;
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -763,7 +764,7 @@ async function callGeminiSeisho(base64Data, mimeType) {
       if (!res.ok) {
         const errJson = await res.json().catch(function () { return {}; });
         const apiMsg = (errJson.error && errJson.error.message) || res.statusText;
-        const detail = model + ' → HTTP ' + res.status + ': ' + apiMsg;
+        const detail = model.name + ' → HTTP ' + res.status + ': ' + apiMsg;
         errors.push(detail);
         console.warn('[Gemini失敗]', detail);
         continue; /* 次のモデルへ */
@@ -779,13 +780,13 @@ async function callGeminiSeisho(base64Data, mimeType) {
       }
       /* 200 OKだが画像データが含まれない場合（finishReasonなど） */
       const finishReason = (candidate && candidate.finishReason) || '不明';
-      const detail2 = model + ' → 画像データなし (finishReason: ' + finishReason + ')';
+      const detail2 = model.name + ' → 画像データなし (finishReason: ' + finishReason + ')';
       errors.push(detail2);
       console.warn('[Gemini]', detail2, JSON.stringify(json).substring(0, 400));
 
     } catch (e) {
       /* ネットワークエラー・CORSエラーなど */
-      const detail = model + ' → ' + e.message;
+      const detail = model.name + ' → ' + e.message;
       errors.push(detail);
       console.warn('[Geminiエラー]', detail);
     }
