@@ -772,12 +772,38 @@ async function callGeminiSeisho(base64Data, mimeType) {
     /* 画像生成成功 */
     return 'data:' + json.mimeType + ';base64,' + json.imageData;
   } else if (json.rooms) {
+    if (json.rooms.length === 0) throw new Error('部屋情報を取得できませんでした');
     /* フォールバック：Canvas描画 */
     var offCanvas = document.createElement('canvas');
     drawCleanPlan(offCanvas, json.rooms);
     return offCanvas.toDataURL('image/png');
   }
   throw new Error('予期しないレスポンス形式です');
+}
+
+/* 手書き画像を白黒二値化してCanvasに描画する（最終フォールバック用） */
+function drawBinarizedFloor(canvas, dataUrl, callback) {
+  var img = new Image();
+  img.onload = function () {
+    canvas.width  = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    var ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0);
+    var id = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    var d  = id.data;
+    for (var i = 0; i < d.length; i += 4) {
+      var g  = d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+      var bw = g < 180 ? 0 : 255;
+      d[i] = d[i + 1] = d[i + 2] = bw;
+      d[i + 3] = 255;
+    }
+    ctx.putImageData(id, 0, 0);
+    if (callback) callback();
+  };
+  img.onerror = function () { if (callback) callback(); };
+  img.src = dataUrl;
 }
 
 /* Canvas APIで整った建築平面図を描画する */
@@ -902,10 +928,21 @@ function loadFloor(evt) {
       img.src = dataUrl;
     }).catch(function (err) {
       loading.classList.remove('active');
-      errMsg.style.color = '#c0392b';
-      errMsg.textContent = 'エラー: ' + err.message;
-      errDiv.style.display = '';
       console.error('[清書エラー]', err.message);
+      /* 最終フォールバック：元の手書き画像を白黒二値化してCanvas表示 */
+      var origSrc = document.getElementById('floorOriginalImg').src;
+      if (origSrc && origSrc.indexOf('data:') === 0) {
+        drawBinarizedFloor(canvas, origSrc, function () {
+          canvas.style.display = 'block';
+          errMsg.style.color   = '#888';
+          errMsg.textContent   = 'AI清書できなかったため、手書き画像（白黒変換）を表示しています。';
+          errDiv.style.display = '';
+        });
+      } else {
+        errMsg.style.color   = '#c0392b';
+        errMsg.textContent   = 'エラー: ' + err.message;
+        errDiv.style.display = '';
+      }
     });
   };
   reader.readAsDataURL(file);
