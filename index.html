@@ -209,6 +209,9 @@
     .photo-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; }
     .photo-label-row { display: flex; align-items: center; gap: 6px; padding: 8px 10px; background: #fafafa; }
     .photo-name-text { font-size: 0.78rem; color: #444; font-weight: 500; }
+    .photo-num { font-size: 0.75rem; color: #999; font-weight: bold; min-width: 20px; flex-shrink: 0; }
+    .photo-name-input { flex: 1; border: none; border-bottom: 1px solid #ddd; background: transparent; font-size: 0.78rem; color: #444; outline: none; padding: 2px 4px; min-width: 0; }
+    .photo-name-input:focus { border-bottom-color: var(--red); }
 
     /* ===== ボタン ===== */
     .btn {
@@ -345,7 +348,7 @@
     <div class="header-title">完成図書作成アプリ</div>
   </div>
   <div style="display:flex;align-items:center;gap:6px;">
-    <div class="header-ver">Ver.0.9</div>
+    <div class="header-ver">Ver.1.0</div>
   </div>
 </header>
 
@@ -393,6 +396,16 @@
         <div class="field">
           <label>実施担当者 <span class="req">*</span></label>
           <input type="text" id="staffName" placeholder="氏名" oninput="onInput()">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>入館時刻</label>
+          <input type="time" id="entryTime" oninput="onInput()">
+        </div>
+        <div class="field">
+          <label>退館時刻</label>
+          <input type="time" id="exitTime" oninput="onInput()">
         </div>
       </div>
     </div>
@@ -473,45 +486,52 @@
 
     <div class="card">
       <div class="card-title">手書き概略図の取り込み</div>
-      <div class="drop-zone" id="dropZone">
-        <input type="file" id="floorFileInput" accept="image/*" onchange="loadFloor(event)">
+      <div class="drop-zone" id="dropZone0">
+        <input type="file" id="floorFileInput0" accept="image/*" onchange="loadFloorN(event, 0)">
         <div class="drop-icon">⊞</div>
         <div class="drop-text">手書き図面を選択またはドロップ</div>
         <div class="drop-sub">JPG・PNG・GIF に対応</div>
       </div>
       <!-- アップロードした手書き画像の表示エリア -->
-      <img class="floor-uploaded-img" id="floorOriginalImg" alt="手書き概略図">
+      <img class="floor-uploaded-img" id="floorOriginalImg0" alt="手書き概略図">
       <div class="drop-note">アップロードした手書き図面をAIで解析し、簡易線画（間取り図）を生成して表示します。</div>
       <div class="floor-actions">
-        <label class="btn btn-red" for="floorFileInput" style="cursor:pointer;">📁 画像を変更</label>
-        <button class="btn btn-outline" onclick="clearFloor()">🗑 クリア</button>
+        <label class="btn btn-red" for="floorFileInput0" style="cursor:pointer;">📁 画像を変更</label>
+        <button class="btn btn-outline" onclick="clearFloorN(0)">🗑 クリア</button>
       </div>
     </div>
 
     <!-- 清書後のプレビュー（常時表示） -->
-    <div class="card">
+    <div class="card" id="floorPreviewCard0">
       <div class="card-title">AI線画プレビュー</div>
       <div class="seisho-preview">
         <div class="seisho-header">
-          <span id="seishoCustomer">お客様名：－</span>
-          <span id="seishoBranch">拠点名：－</span>
+          <span id="seishoCustomer0">お客様名：－</span>
+          <span id="seishoBranch0">拠点名：－</span>
         </div>
         <div class="seisho-body">
-          <div class="seisho-loading" id="seishoLoading">
+          <div class="seisho-loading" id="seishoLoading0">
             <div class="seisho-spinner"></div>
             <div style="font-size:0.82rem;color:#888;">AIで間取りを解析中...</div>
           </div>
-          <div class="seisho-empty" id="seishoEmpty">
+          <div class="seisho-empty" id="seishoEmpty0">
             <span class="icon">🗺️</span>
             手書き概略図をアップロードすると<br>線画がここに表示されます
           </div>
-          <div class="seisho-empty" id="seishoError" style="display:none;">
+          <div class="seisho-empty" id="seishoError0" style="display:none;">
             <span class="icon">⚠️</span>
-            <span id="seishoErrorMsg" style="font-size:0.78rem;color:#c0392b;"></span>
+            <span id="seishoErrorMsg0" style="font-size:0.78rem;color:#c0392b;"></span>
           </div>
-          <canvas id="floorCanvas" style="display:none; width:100%;"></canvas>
+          <canvas id="floorCanvas0" style="display:none; width:100%;"></canvas>
         </div>
       </div>
+    </div>
+
+    <!-- 追加フロアスロット挿入位置 -->
+    <div id="extraFloorSlots"></div>
+
+    <div style="text-align:center; margin-bottom:8px;">
+      <button class="btn btn-outline" onclick="addFloorSlot()">＋ フロアを追加</button>
     </div>
 
   </div>
@@ -565,6 +585,8 @@
         <tr><td>管理番号</td><td id="c-mgmt">—</td></tr>
         <tr><td>実施日</td><td id="c-date">—</td></tr>
         <tr><td>実施担当者</td><td id="c-staff">—</td></tr>
+        <tr><td>入館時刻</td><td id="c-entry">—</td></tr>
+        <tr><td>退館時刻</td><td id="c-exit">—</td></tr>
         <tr><td>電源数</td><td id="c-total">0</td></tr>
         <tr><td>必要電源数</td><td id="c-required">0</td></tr>
         <tr><td>使用した電源数</td><td id="c-used">0</td></tr>
@@ -649,14 +671,19 @@ function syncFloorInfo() {
 
   function setEl(id, val, placeholder) {
     var el = document.getElementById(id);
+    if (!el) return;
     if (val) { el.textContent = val; el.classList.remove('placeholder-val'); el.classList.add('val'); }
     else     { el.textContent = placeholder; el.classList.add('placeholder-val'); el.classList.remove('val'); }
   }
   setEl('floorCustomer', customer, '（基本情報タブで入力）');
   setEl('floorBranch',   branch,   '（基本情報タブで入力）');
 
-  document.getElementById('seishoCustomer').textContent = 'お客様名：' + (customer || '－');
-  document.getElementById('seishoBranch').textContent   = '拠点名：'   + (branch   || '－');
+  for (var i = 0; i < floorSlotCount; i++) {
+    var sc = document.getElementById('seishoCustomer' + i);
+    var sb = document.getElementById('seishoBranch'   + i);
+    if (sc) sc.textContent = 'お客様名：' + (customer || '－');
+    if (sb) sb.textContent = '拠点名：'   + (branch   || '－');
+  }
 }
 
 /* ============================================================
@@ -679,9 +706,11 @@ function onSpaceChange() {
 }
 
 /* ============================================================
-   フロア概略図 画像読込・線画処理
+   フロア概略図 画像読込・線画処理（複数スロット対応）
    ============================================================ */
-var floorLoaded = false;
+var floorLoaded = false; // 後方互換（slot0）
+var floorLoadedArr = [false]; // スロット別フラグ
+var floorSlotCount = 1;
 
 /* Gemini Vision で間取りを解析し部屋情報 JSON を返す（サーバー経由） */
 async function analyzeFloorWithGemini(base64Data, mimeType) {
@@ -803,27 +832,27 @@ function drawCleanPlan(canvas, rooms) {
   ctx.fillText('フロア概略図（AI線画）', W / 2, H - 4);
 }
 
-function loadFloor(evt) {
+function loadFloorN(evt, idx) {
   var file = evt.target.files[0];
   if (!file) return;
   var reader = new FileReader();
   reader.onload = function (e) {
-    var origImg = document.getElementById('floorOriginalImg');
+    var origImg = document.getElementById('floorOriginalImg' + idx);
     origImg.src = e.target.result;
     origImg.style.display = 'block';
-    document.getElementById('dropZone').style.display = 'none';
-    floorLoaded = true;
+    document.getElementById('dropZone' + idx).style.display = 'none';
+    floorLoadedArr[idx] = true;
+    floorLoaded = floorLoadedArr[0];
     syncFloorInfo();
 
-    var canvas  = document.getElementById('floorCanvas');
-    var loading = document.getElementById('seishoLoading');
-    var empty   = document.getElementById('seishoEmpty');
-    var errDiv  = document.getElementById('seishoError');
-    var errMsg  = document.getElementById('seishoErrorMsg');
+    var canvas  = document.getElementById('floorCanvas'   + idx);
+    var loading = document.getElementById('seishoLoading' + idx);
+    var empty   = document.getElementById('seishoEmpty'   + idx);
+    var errDiv  = document.getElementById('seishoError'   + idx);
+    var errMsg  = document.getElementById('seishoErrorMsg'+ idx);
     [empty, errDiv].forEach(function (el) { el.style.display = 'none'; });
     canvas.style.display = 'none';
 
-    /* Gemini Vision → Canvas で線画生成 */
     loading.classList.add('active');
     var base64   = e.target.result.split(',')[1];
     var mimeType = file.type || 'image/jpeg';
@@ -834,7 +863,6 @@ function loadFloor(evt) {
       canvas.style.display = 'block';
     }).catch(function (err) {
       loading.classList.remove('active');
-      errMsg.style.color = '#c0392b';
       errMsg.textContent = 'エラー: ' + err.message;
       errDiv.style.display = '';
       console.error('[AI線画エラー]', err.message);
@@ -843,30 +871,83 @@ function loadFloor(evt) {
   reader.readAsDataURL(file);
 }
 
-function clearFloor() {
-  /* 手書き画像エリアをリセット */
-  var origImg = document.getElementById('floorOriginalImg');
+function clearFloorN(idx) {
+  var origImg = document.getElementById('floorOriginalImg' + idx);
   origImg.src = '';
   origImg.style.display = 'none';
-  document.getElementById('dropZone').style.display = '';
-  /* 清書プレビューをリセット */
-  var canvas = document.getElementById('floorCanvas');
+  document.getElementById('dropZone' + idx).style.display = '';
+  var canvas = document.getElementById('floorCanvas' + idx);
   canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
   canvas.style.display = 'none';
-  document.getElementById('seishoLoading').classList.remove('active');
-  document.getElementById('seishoEmpty').style.display = '';
-  document.getElementById('seishoError').style.display = 'none';
-  document.getElementById('floorFileInput').value = '';
-  floorLoaded = false;
+  document.getElementById('seishoLoading' + idx).classList.remove('active');
+  document.getElementById('seishoEmpty'   + idx).style.display = '';
+  document.getElementById('seishoError'   + idx).style.display = 'none';
+  document.getElementById('floorFileInput' + idx).value = '';
+  floorLoadedArr[idx] = false;
+  floorLoaded = floorLoadedArr[0];
+}
+
+function addFloorSlot() {
+  var idx = floorSlotCount++;
+  floorLoadedArr[idx] = false;
+  var customer = document.getElementById('customerName').value.trim();
+  var branch   = document.getElementById('branchName').value.trim();
+  var label    = idx + 1;
+
+  var dropCard = document.createElement('div');
+  dropCard.className = 'card';
+  dropCard.innerHTML =
+    '<div class="card-title">手書き概略図の取り込み（' + label + '枚目）</div>' +
+    '<div class="drop-zone" id="dropZone' + idx + '">' +
+      '<input type="file" id="floorFileInput' + idx + '" accept="image/*">' +
+      '<div class="drop-icon">⊞</div>' +
+      '<div class="drop-text">手書き図面を選択またはドロップ</div>' +
+      '<div class="drop-sub">JPG・PNG・GIF に対応</div>' +
+    '</div>' +
+    '<img class="floor-uploaded-img" id="floorOriginalImg' + idx + '" alt="手書き概略図">' +
+    '<div class="floor-actions">' +
+      '<label class="btn btn-red" for="floorFileInput' + idx + '" style="cursor:pointer;">📁 画像を変更</label>' +
+      '<button class="btn btn-outline">🗑 クリア</button>' +
+    '</div>';
+
+  var previewCard = document.createElement('div');
+  previewCard.className = 'card';
+  previewCard.innerHTML =
+    '<div class="card-title">AI線画プレビュー（' + label + '枚目）</div>' +
+    '<div class="seisho-preview">' +
+      '<div class="seisho-header">' +
+        '<span id="seishoCustomer' + idx + '">お客様名：' + (customer || '－') + '</span>' +
+        '<span id="seishoBranch'   + idx + '">拠点名：'   + (branch   || '－') + '</span>' +
+      '</div>' +
+      '<div class="seisho-body">' +
+        '<div class="seisho-loading" id="seishoLoading' + idx + '">' +
+          '<div class="seisho-spinner"></div>' +
+          '<div style="font-size:0.82rem;color:#888;">AIで間取りを解析中...</div>' +
+        '</div>' +
+        '<div class="seisho-empty" id="seishoEmpty' + idx + '">' +
+          '<span class="icon">🗺️</span>' +
+          '手書き概略図をアップロードすると<br>線画がここに表示されます' +
+        '</div>' +
+        '<div class="seisho-empty" id="seishoError' + idx + '" style="display:none;">' +
+          '<span class="icon">⚠️</span>' +
+          '<span id="seishoErrorMsg' + idx + '" style="font-size:0.78rem;color:#c0392b;"></span>' +
+        '</div>' +
+        '<canvas id="floorCanvas' + idx + '" style="display:none; width:100%;"></canvas>' +
+      '</div>' +
+    '</div>';
+
+  var container = document.getElementById('extraFloorSlots');
+  container.appendChild(dropCard);
+  container.appendChild(previewCard);
+
+  /* ファイル選択イベントをバインド */
+  document.getElementById('floorFileInput' + idx).addEventListener('change', function (e) { loadFloorN(e, idx); });
+  dropCard.querySelector('.btn-outline').addEventListener('click', function () { clearFloorN(idx); });
 }
 
 /* ============================================================
-   現地写真  ※ 丸数字なし
+   現地写真
    ============================================================ */
-var defaultTargets = [
-  '撮影対象①','撮影対象②','撮影対象③','撮影対象④',
-  '撮影対象⑤','撮影対象⑥','撮影対象⑦','撮影対象⑧'
-];
 var photoUploaded = 0;
 var totalSlots = 8;
 
@@ -898,7 +979,7 @@ function compressPhoto(dataUrl) {
   });
 }
 
-function makePhotoCard(name) {
+function makePhotoCard(num) {
   var card = document.createElement('div');
   card.className = 'photo-card';
 
@@ -918,10 +999,17 @@ function makePhotoCard(name) {
   var labelRow = document.createElement('div');
   labelRow.className = 'photo-label-row';
 
-  var nameSpan = document.createElement('span');
-  nameSpan.className = 'photo-name-text';
-  nameSpan.textContent = name;
-  labelRow.appendChild(nameSpan);
+  var numSpan = document.createElement('span');
+  numSpan.className = 'photo-num';
+  numSpan.textContent = num + '.';
+
+  var nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.className = 'photo-name-input';
+  nameInput.placeholder = '名称';
+
+  labelRow.appendChild(numSpan);
+  labelRow.appendChild(nameInput);
 
   inp.addEventListener('change', function (e) {
     var f = e.target.files[0];
@@ -955,14 +1043,13 @@ function updatePhotoCount() {
 
 function addPhotoSlot() {
   totalSlots++;
-  var extraNum = totalSlots - 8;
-  document.getElementById('photoGrid').appendChild(makePhotoCard('追加写真 ' + extraNum));
+  document.getElementById('photoGrid').appendChild(makePhotoCard(totalSlots));
   updatePhotoCount();
 }
 
 (function initPhotos() {
   var grid = document.getElementById('photoGrid');
-  defaultTargets.forEach(function (name) { grid.appendChild(makePhotoCard(name)); });
+  for (var i = 1; i <= 8; i++) { grid.appendChild(makePhotoCard(i)); }
   updatePhotoCount();
 })();
 
@@ -976,6 +1063,8 @@ function updateExport() {
   document.getElementById('c-mgmt').textContent      = g('managementNo');
   document.getElementById('c-date').textContent      = g('implementDate');
   document.getElementById('c-staff').textContent     = g('staffName');
+  document.getElementById('c-entry').textContent     = document.getElementById('entryTime').value || '—';
+  document.getElementById('c-exit').textContent      = document.getElementById('exitTime').value  || '—';
   document.getElementById('c-total').textContent     = document.getElementById('totalPower').value || '0';
   document.getElementById('c-required').textContent  = document.getElementById('requiredPower').value || '0';
   document.getElementById('c-used').textContent      = document.getElementById('usedPower').value || '0';
@@ -984,7 +1073,8 @@ function updateExport() {
   document.getElementById('c-space').textContent    = spaceVal ? (spaceVal.value === 'ok' ? '設置可能' : '設置不可') : '未選択';
   document.getElementById('c-ngreason').textContent = document.getElementById('ngReason').value.trim() || '—';
   document.getElementById('c-remarks').textContent  = document.getElementById('remarks').value.trim() || '—';
-  document.getElementById('c-floor').textContent    = floorLoaded ? '取込済' : '未取込';
+  var loadedCount = floorLoadedArr.filter(Boolean).length;
+  document.getElementById('c-floor').textContent    = loadedCount > 0 ? loadedCount + '枚取込済' : '未取込';
   document.getElementById('c-photos').textContent   = photoUploaded + ' 枚';
 }
 
@@ -1002,19 +1092,21 @@ function selectFmt(btn, fmt) {
 function getData() {
   var r = document.querySelector('input[name="space"]:checked');
   return {
-    customer : document.getElementById('customerName').value.trim(),
-    branch   : document.getElementById('branchName').value.trim(),
-    mgmt     : document.getElementById('managementNo').value.trim(),
-    date     : document.getElementById('implementDate').value,
-    staff    : document.getElementById('staffName').value.trim(),
-    total    : document.getElementById('totalPower').value || '0',
-    required : document.getElementById('requiredPower').value || '0',
-    used     : document.getElementById('usedPower').value || '0',
-    free     : document.getElementById('freePower').textContent || '0',
-    space    : r ? (r.value === 'ok' ? '設置可能' : '設置不可') : '未選択',
-    ngreason : document.getElementById('ngReason').value.trim(),
-    remarks  : document.getElementById('remarks').value.trim(),
-    photos   : photoUploaded
+    customer  : document.getElementById('customerName').value.trim(),
+    branch    : document.getElementById('branchName').value.trim(),
+    mgmt      : document.getElementById('managementNo').value.trim(),
+    date      : document.getElementById('implementDate').value,
+    staff     : document.getElementById('staffName').value.trim(),
+    entryTime : document.getElementById('entryTime').value,
+    exitTime  : document.getElementById('exitTime').value,
+    total     : document.getElementById('totalPower').value || '0',
+    required  : document.getElementById('requiredPower').value || '0',
+    used      : document.getElementById('usedPower').value || '0',
+    free      : document.getElementById('freePower').textContent || '0',
+    space     : r ? (r.value === 'ok' ? '設置可能' : '設置不可') : '未選択',
+    ngreason  : document.getElementById('ngReason').value.trim(),
+    remarks   : document.getElementById('remarks').value.trim(),
+    photos    : photoUploaded
   };
 }
 
@@ -1042,7 +1134,8 @@ function saveAsExcel(d, base) {
   var rows = [
     ['完成図書'], [''],
     ['【基本情報】'], ['お客様名', d.customer], ['拠点名', d.branch],
-    ['管理番号', d.mgmt], ['実施日', d.date], ['実施担当者', d.staff], [''],
+    ['管理番号', d.mgmt], ['実施日', d.date], ['実施担当者', d.staff],
+    ['入館時刻', d.entryTime || '—'], ['退館時刻', d.exitTime || '—'], [''],
     ['【電源情報】'],
     ['電源数', d.total, '必要電源数', d.required],
     ['使用した電源数', d.used, '空き電源数', d.free], [''],
@@ -1065,12 +1158,15 @@ function saveAsExcel(d, base) {
 function collectPhotos() {
   var photos = [];
   document.querySelectorAll('#photoGrid .photo-card').forEach(function (card) {
-    var img    = card.querySelector('img.photo-img');
-    var nameEl = card.querySelector('.photo-name-text');
+    var img      = card.querySelector('img.photo-img');
+    var numEl    = card.querySelector('.photo-num');
+    var nameInp  = card.querySelector('.photo-name-input');
     if (img && img.src && img.src.indexOf('data:') === 0) {
+      var num  = numEl  ? numEl.textContent.trim()  : '';
+      var name = nameInp ? nameInp.value.trim() : '';
       photos.push({
         src:  img.src,
-        name: nameEl ? nameEl.textContent.trim() : '',
+        name: name ? num + ' ' + name : num,
         w:    parseInt(img.dataset.w) || img.naturalWidth || 0,
         h:    parseInt(img.dataset.h) || img.naturalHeight || 0
       });
@@ -1111,14 +1207,17 @@ function saveAsPPT(d, base) {
 
   slide.addTable(tableRows, { x: 0.5, y: 1.2, w: 9, colW: [3, 6], rowH: 0.3, fontSize: 12, border: { type: 'solid', color: 'DDDDDD', pt: 1 } });
 
-  if (floorLoaded) {
-    var canvas = document.getElementById('floorCanvas');
-    var imgData = canvas.toDataURL('image/png');
-    var slide2 = pptx.addSlide();
-    slide2.addText('フロア概略図', { x: 0.5, y: 0.2, w: '90%', h: 0.6, fontSize: 20, bold: true, color: 'C0392B' });
-    slide2.addText('お客様名：' + (d.customer || '－') + '　拠点名：' + (d.branch || '－'),
-      { x: 0.5, y: 0.8, w: '90%', h: 0.4, fontSize: 12, color: '666666' });
-    slide2.addImage({ data: imgData, x: 0.5, y: 1.3, w: 9, h: 5 });
+  for (var fsi = 0; fsi < floorSlotCount; fsi++) {
+    if (floorLoadedArr[fsi]) {
+      var fCanvas = document.getElementById('floorCanvas' + fsi);
+      var fImgData = fCanvas.toDataURL('image/png');
+      var fSlide = pptx.addSlide();
+      var fLabel = floorSlotCount > 1 ? 'フロア概略図（' + (fsi + 1) + '枚目）' : 'フロア概略図';
+      fSlide.addText(fLabel, { x: 0.5, y: 0.2, w: '90%', h: 0.6, fontSize: 20, bold: true, color: 'C0392B' });
+      fSlide.addText('お客様名：' + (d.customer || '－') + '　拠点名：' + (d.branch || '－'),
+        { x: 0.5, y: 0.8, w: '90%', h: 0.4, fontSize: 12, color: '666666' });
+      fSlide.addImage({ data: fImgData, x: 0.5, y: 1.3, w: 9, h: 5 });
+    }
   }
 
   /* 現地写真スライド（4枚/スライド） */
@@ -1170,10 +1269,16 @@ function saveAsWord(d, base) {
   html += '<h2>機器設置スペース</h2><table>';
   html += wtr('設置スペース', d.space) + wtr('設置不可理由', d.ngreason || '—') + wtr('備考', d.remarks || '—');
   html += '</table>';
-  if (floorLoaded) {
-    var floorImg = document.getElementById('floorCanvas').toDataURL('image/png');
+  var wFloorCount = floorLoadedArr.filter(Boolean).length;
+  if (wFloorCount > 0) {
     html += '<h2>フロア概略図</h2>';
-    html += '<img src="' + floorImg + '" style="max-width:100%;border:1px solid #ddd;">';
+    for (var wfi = 0; wfi < floorSlotCount; wfi++) {
+      if (floorLoadedArr[wfi]) {
+        var wFloorImg = document.getElementById('floorCanvas' + wfi).toDataURL('image/png');
+        if (wFloorCount > 1) html += '<p style="font-size:10pt;color:#666;">（' + (wfi + 1) + '枚目）</p>';
+        html += '<img src="' + wFloorImg + '" style="max-width:100%;border:1px solid #ddd;margin-bottom:12pt;">';
+      }
+    }
   }
   var wPhotos = collectPhotos();
   if (wPhotos.length > 0) {
@@ -1225,14 +1330,23 @@ document.getElementById('previewModal').addEventListener('click', function (e) {
 
 function buildDocPage() {
   var d = getData();
-  var canvas = document.getElementById('floorCanvas');
-  var floorImgSrc = floorLoaded ? canvas.toDataURL('image/png') : null;
+  /* 複数フロアスロット画像収集 */
+  var floorImgs = [];
+  for (var fi = 0; fi < floorSlotCount; fi++) {
+    if (floorLoadedArr[fi]) {
+      floorImgs.push(document.getElementById('floorCanvas' + fi).toDataURL('image/png'));
+    }
+  }
+  var floorImgSrc = floorImgs.length > 0 ? floorImgs[0] : null;
 
   var photos = [];
   document.querySelectorAll('#photoGrid .photo-card').forEach(function (card) {
-    var img  = card.querySelector('img.photo-img');
-    var name = card.querySelector('.photo-name-text');
-    photos.push({ src: img ? img.src : null, name: name ? name.textContent : '' });
+    var img     = card.querySelector('img.photo-img');
+    var numEl   = card.querySelector('.photo-num');
+    var nameInp = card.querySelector('.photo-name-input');
+    var num  = numEl   ? numEl.textContent.trim()  : '';
+    var name = nameInp ? nameInp.value.trim() : '';
+    photos.push({ src: img ? img.src : null, name: name ? num + ' ' + name : num });
   });
 
   var html = '';
@@ -1245,7 +1359,8 @@ function buildDocPage() {
   html += '<div class="doc-section-title">基本情報</div>';
   html += '<table class="doc-table">';
   html += row2('お客様名', d.customer) + row2('拠点名', d.branch) +
-          row2('管理番号', d.mgmt)   + row2('実施日', d.date) + row2('実施担当者', d.staff);
+          row2('管理番号', d.mgmt)   + row2('実施日', d.date) + row2('実施担当者', d.staff) +
+          row2('入館時刻', d.entryTime || '—') + row2('退館時刻', d.exitTime || '—');
   html += '</table></div>';
 
   /* 電源情報 */
@@ -1264,11 +1379,14 @@ function buildDocPage() {
   /* フロア概略図 */
   html += '<div class="doc-section">';
   html += '<div class="doc-section-title">フロア概略図</div>';
-  if (floorImgSrc) {
-    html += '<div style="border:1px solid #ddd; border-radius:4px; overflow:hidden;">';
-    html += '<div class="doc-floor-header"><span>お客様名：' + (d.customer || '－') + '</span><span>拠点名：' + (d.branch || '－') + '</span></div>';
-    html += '<img src="' + floorImgSrc + '" class="doc-floor-img">';
-    html += '</div>';
+  if (floorImgs.length > 0) {
+    floorImgs.forEach(function (src, fi) {
+      var label = floorImgs.length > 1 ? ('（' + (fi + 1) + '枚目）') : '';
+      html += '<div style="border:1px solid #ddd; border-radius:4px; overflow:hidden; margin-bottom:12px;">';
+      html += '<div class="doc-floor-header"><span>お客様名：' + (d.customer || '－') + label + '</span><span>拠点名：' + (d.branch || '－') + '</span></div>';
+      html += '<img src="' + src + '" class="doc-floor-img">';
+      html += '</div>';
+    });
   } else {
     html += '<div style="background:#fafafa;border:1px solid #ddd;border-radius:4px;padding:20px;text-align:center;color:#bbb;font-size:0.82rem;">フロア概略図は未取込です</div>';
   }
