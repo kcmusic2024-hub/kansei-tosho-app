@@ -1169,134 +1169,101 @@ function saveData() {
   else if (currentFmt === 'excel') saveAsExcel(d, base);
 }
 
-/* ---------- Excel 保存（ExcelJS・画像埋め込み対応） ---------- */
+/* ---------- Excel 保存（テンプレート形式） ---------- */
 async function saveAsExcel(d, base) {
   if (typeof ExcelJS === 'undefined') {
     alert('ExcelJSが読み込まれていません。インターネット接続を確認してください。');
     return;
   }
   try {
-    var RED = 'FFC0392B', GRAY = 'FF777777';
+    /* テンプレートXLSXをfetchしてロード */
+    var resp = await fetch('/template/report-template.xlsx');
+    if (!resp.ok) throw new Error('テンプレートの取得に失敗しました。Vercel経由でご利用ください。');
     var wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(await resp.arrayBuffer());
 
-    /* ===== Sheet 1: 完成図書（テキスト） ===== */
-    var ws = wb.addWorksheet('完成図書');
-    ws.columns = [{ width: 22 }, { width: 40 }, { width: 16 }, { width: 16 }];
-    var r;
-    r = ws.addRow(['完成図書']);
-    r.getCell(1).font = { bold: true, size: 18, color: { argb: RED } };
-    ws.addRow([]);
+    /* ===== Sheet1: 完了報告書 ===== */
+    var ws1 = wb.getWorksheet('完了報告書');
 
-    r = ws.addRow(['【基本情報】']);
-    r.getCell(1).font = { bold: true, color: { argb: RED } };
-    [
-      ['お客様名', d.customer], ['拠点名', d.branch], ['管理番号', d.mgmt],
-      ['実施日', d.date], ['実施担当者', d.staff],
-      ['入館時刻', d.entryTime || '—'], ['退館時刻', d.exitTime || '—']
-    ].forEach(function(pair) {
-      r = ws.addRow(pair);
-      r.getCell(1).font = { color: { argb: GRAY } };
-    });
-    ws.addRow([]);
+    /* 基本情報（各結合エリアの先頭セルに書き込み） */
+    ws1.getCell('G6').value   = d.customer;
+    ws1.getCell('AN6').value  = d.mgmt;
+    ws1.getCell('G8').value   = d.branch;
+    ws1.getCell('AN8').value  = d.date;
+    ws1.getCell('AN10').value = d.entryTime || '';
+    ws1.getCell('H12').value  = d.staff;
+    ws1.getCell('AN12').value = d.exitTime  || '';
 
-    r = ws.addRow(['【電源情報】']);
-    r.getCell(1).font = { bold: true, color: { argb: RED } };
-    [
-      ['電源数', d.total], ['必要電源数', d.required],
-      ['使用した電源数', d.used], ['空き電源数', d.free]
-    ].forEach(function(pair) {
-      r = ws.addRow(pair);
-      r.getCell(1).font = { color: { argb: GRAY } };
-    });
-    ws.addRow([]);
+    /* 電源情報（黄色セルに数値、白セルに計算値） */
+    ws1.getCell('E16').value  = d.total    !== '' ? Number(d.total)    : '';
+    ws1.getCell('Q16').value  = d.required !== '' ? Number(d.required) : '';
+    ws1.getCell('AQ16').value = d.free     !== '' ? Number(d.free)     : '';
+    ws1.getCell('AQ17').value = d.used     !== '' ? Number(d.used)     : '';
 
-    r = ws.addRow(['【機器設置スペース】']);
-    r.getCell(1).font = { bold: true, color: { argb: RED } };
-    var spaceRows = [['設置スペース', d.space]];
-    if (d.ngreason) spaceRows.push(['設置不可理由', d.ngreason]);
-    if (d.remarks)  spaceRows.push(['備考', d.remarks]);
-    spaceRows.forEach(function(pair) {
-      r = ws.addRow(pair);
-      r.getCell(1).font = { color: { argb: GRAY } };
-    });
-    ws.addRow([]);
-
-    r = ws.addRow(['【フロア・写真】']);
-    r.getCell(1).font = { bold: true, color: { argb: RED } };
-    r = ws.addRow(['フロア概略図', floorLoadedArr.some(Boolean) ? '取込済（別シート参照）' : '未取込']);
-    r.getCell(1).font = { color: { argb: GRAY } };
-    r = ws.addRow(['写真枚数', d.photos + ' 枚（別シート参照）']);
-    r.getCell(1).font = { color: { argb: GRAY } };
-
-    /* ===== フロア概略図シート（1枚ずつ） ===== */
-    for (var fi = 0; fi < floorSlotCount; fi++) {
-      if (!floorLoadedArr[fi]) continue;
-      var floorSrc = getFloorImageSrc(fi);
-      if (!floorSrc) continue;
-
-      var shName = floorSlotCount > 1 ? 'フロア_' + (fi + 1) : 'フロア概略図';
-      var wsF = wb.addWorksheet(shName);
-      for (var fc = 1; fc <= 10; fc++) wsF.getColumn(fc).width = 13;
-
-      r = wsF.addRow([floorSlotCount > 1 ? 'フロア概略図（' + (fi + 1) + '枚目）' : 'フロア概略図']);
-      r.getCell(1).font = { bold: true, size: 14, color: { argb: RED } };
-      r = wsF.addRow(['お客様名: ' + (d.customer || '—') + '　拠点名: ' + (d.branch || '—')]);
-      r.getCell(1).font = { size: 10, color: { argb: GRAY } };
-      wsF.addRow([]);
-      for (var ri = 4; ri <= 30; ri++) wsF.getRow(ri).height = 25;
-
-      var fBase64 = floorSrc.split(',')[1];
-      var fExtM = floorSrc.match(/^data:image\/([a-z]+)/);
-      var fExt = fExtM ? fExtM[1] : 'png';
-      if (fExt === 'jpg') fExt = 'jpeg';
-      wsF.addImage(wb.addImage({ base64: fBase64, extension: fExt }), 'A4:J30');
+    /* 機器設置スペース（□ / ■ の切り替え） */
+    if (d.space === '設置可能') {
+      ws1.getCell('Q18').value  = '■　設置可能';
+      ws1.getCell('AI18').value = '□　設置不可';
+    } else if (d.space === '設置不可') {
+      ws1.getCell('Q18').value  = '□　設置可能';
+      ws1.getCell('AI18').value = '■　設置不可';
     }
 
-    /* ===== 現地写真シート ===== */
+    /* 備考（設置不可理由も含む） */
+    var remarkText = '';
+    if (d.ngreason) remarkText += '【設置不可理由】' + d.ngreason + '\n';
+    if (d.remarks)  remarkText += d.remarks;
+    ws1.getCell('B23').value = remarkText.trim();
+
+    /* ===== Sheet2: フロア概略図 ===== */
+    var ws2 = wb.getWorksheet('フロア概略図');
+    ws2.getCell('A1').value = (d.customer || '—') + '　' + (d.branch || '—');
+
+    /* 先頭フロア画像を A2:AZ28 に挿入 */
+    var floorSrc0 = null;
+    for (var fi = 0; fi < floorSlotCount; fi++) {
+      if (floorLoadedArr[fi]) { floorSrc0 = getFloorImageSrc(fi); break; }
+    }
+    if (floorSrc0) {
+      var fBase64 = floorSrc0.split(',')[1];
+      var fExtM   = floorSrc0.match(/^data:image\/([a-z]+)/);
+      var fExt    = fExtM ? fExtM[1] : 'png';
+      if (fExt === 'jpg') fExt = 'jpeg';
+      ws2.addImage(wb.addImage({ base64: fBase64, extension: fExt }), 'A2:AZ28');
+    }
+
+    /* ===== Sheet3: 写真（テンプレート8枠 ①〜⑧） ===== */
+    var ws3 = wb.getWorksheet('写真');
     var photos = collectPhotos();
-    if (photos.length > 0) {
-      var wsP = wb.addWorksheet('現地写真');
-      for (var pc = 1; pc <= 13; pc++) wsP.getColumn(pc).width = 11;
-
-      r = wsP.addRow(['現地写真']);
-      r.getCell(1).font = { bold: true, size: 14, color: { argb: RED } };
-      wsP.addRow([]);
-
-      var ROWS_IMG = 18, ROWS_GAP = 2;
-      var maxGroups = Math.ceil(photos.length / 2);
-      for (var g = 0; g < maxGroups; g++) {
-        var gStart = 3 + g * (ROWS_IMG + ROWS_GAP);
-        for (var ri2 = gStart; ri2 <= gStart + ROWS_IMG; ri2++) wsP.getRow(ri2).height = 15;
-      }
-
-      for (var pi = 0; pi < photos.length; pi++) {
-        var ph = photos[pi];
-        var grp = Math.floor(pi / 2);
-        var side = pi % 2;
-        var imgSRow = 3 + grp * (ROWS_IMG + ROWS_GAP);
-        var imgERow = imgSRow + ROWS_IMG - 1;
-        var sCol = side === 0 ? 'A' : 'H';
-        var eCol = side === 0 ? 'F' : 'M';
-
-        wsP.addImage(
-          wb.addImage({ base64: ph.src.split(',')[1], extension: 'jpeg' }),
-          sCol + imgSRow + ':' + eCol + imgERow
-        );
-        var lc = wsP.getRow(imgERow + 1).getCell(side === 0 ? 1 : 8);
-        lc.value = ph.name;
-        lc.font = { size: 9, color: { argb: GRAY } };
-      }
+    var photoSlots = [
+      { img: 'A2:Z20',    cap: 'G21'  },
+      { img: 'AA2:AZ20',  cap: 'AG21' },
+      { img: 'A22:Z40',   cap: 'G41'  },
+      { img: 'AA22:AZ40', cap: 'AG41' },
+      { img: 'A42:Z60',   cap: 'G61'  },
+      { img: 'AA42:AZ60', cap: 'AG61' },
+      { img: 'A62:Z76',   cap: 'G77'  },
+      { img: 'AA62:AZ76', cap: 'AG77' },
+    ];
+    for (var pi = 0; pi < Math.min(photos.length, 8); pi++) {
+      var ph   = photos[pi];
+      var slot = photoSlots[pi];
+      ws3.addImage(
+        wb.addImage({ base64: ph.src.split(',')[1], extension: 'jpeg' }),
+        slot.img
+      );
+      ws3.getCell(slot.cap).value = ph.name;
     }
 
     /* ダウンロード */
-    var buf = await wb.xlsx.writeBuffer();
+    var outBuf = await wb.xlsx.writeBuffer();
     dlBlob(
-      new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+      new Blob([outBuf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
       base + '.xlsx'
     );
   } catch (err) {
     console.error('Excel生成エラー:', err);
-    alert('Excel生成に失敗しました: ' + err.message);
+    alert('Excel生成に失敗しました:\n' + err.message);
   }
 }
 
