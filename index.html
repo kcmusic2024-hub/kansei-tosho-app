@@ -364,7 +364,7 @@
     <div class="header-title">完成図書作成アプリ</div>
   </div>
   <div style="display:flex;align-items:center;gap:6px;">
-    <div class="header-ver">Ver.1.1</div>
+    <div class="header-ver">Ver.1.2</div>
   </div>
 </header>
 
@@ -580,17 +580,14 @@
     <div class="card">
       <div class="card-title">出力フォーマット</div>
       <div class="fmt-tab-row">
-        <button class="fmt-tab active" data-fmt="excel" onclick="selectFmt(this,'excel')">
-          <span class="fmt-icon">📊</span>Excel
-        </button>
-        <button class="fmt-tab" data-fmt="ppt" onclick="selectFmt(this,'ppt')">
+        <button class="fmt-tab active" data-fmt="ppt" onclick="selectFmt(this,'ppt')">
           <span class="fmt-icon">📑</span>PowerPoint
-        </button>
-        <button class="fmt-tab" data-fmt="word" onclick="selectFmt(this,'word')">
-          <span class="fmt-icon">📝</span>Word
         </button>
         <button class="fmt-tab" data-fmt="pdf" onclick="selectFmt(this,'pdf')">
           <span class="fmt-icon">📄</span>PDF
+        </button>
+        <button class="fmt-tab" data-fmt="excel" onclick="selectFmt(this,'excel')">
+          <span class="fmt-icon">📊</span>Excel
         </button>
       </div>
     </div>
@@ -1126,7 +1123,7 @@ function updateExport() {
 /* ============================================================
    フォーマット選択
    ============================================================ */
-var currentFmt = 'excel';
+var currentFmt = 'ppt';
 
 function selectFmt(btn, fmt) {
   document.querySelectorAll('.fmt-tab').forEach(function(b){ b.classList.remove('active'); });
@@ -1167,10 +1164,9 @@ function saveData() {
   updateExport();
   var d = getData();
   var base = '完成図書_' + getTodayStr();
-  if (currentFmt === 'excel') saveAsExcel(d, base);
-  else if (currentFmt === 'ppt')  saveAsPPT(d, base);
-  else if (currentFmt === 'word') saveAsWord(d, base);
-  else if (currentFmt === 'pdf')  saveAsPDF();
+  if (currentFmt === 'ppt')   saveAsPPT(d, base);
+  else if (currentFmt === 'pdf')   saveAsPDF();
+  else if (currentFmt === 'excel') saveAsExcel(d, base);
 }
 
 /* ---------- Excel 保存 ---------- */
