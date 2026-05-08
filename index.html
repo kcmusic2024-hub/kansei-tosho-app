@@ -1182,6 +1182,11 @@ async function saveAsExcel(d, base) {
     var wb = new ExcelJS.Workbook();
     await wb.xlsx.load(await resp.arrayBuffer());
 
+    /* 名前付き範囲クリア（ExcelJSがテンプレートの定義名を壊すバグの回避） */
+    if (wb.model && Array.isArray(wb.model.definedNames)) {
+      wb.model.definedNames.length = 0;
+    }
+
     /* ===== Sheet1: 完了報告書 ===== */
     var ws1 = wb.getWorksheet('完了報告書');
 
@@ -1219,7 +1224,21 @@ async function saveAsExcel(d, base) {
     var ws2 = wb.getWorksheet('フロア概略図');
     ws2.getCell('A1').value = (d.customer || '—') + '　' + (d.branch || '—');
 
-    /* 先頭フロア画像を A2:AZ28 に挿入 */
+    /* 画像の実寸法を取得してアスペクト比を維持するヘルパー */
+    function getImgNaturalSize(dataUrl) {
+      return new Promise(function(resolve) {
+        var img = new Image();
+        img.onload = function() { resolve({ w: img.naturalWidth, h: img.naturalHeight }); };
+        img.onerror = function() { resolve({ w: 800, h: 600 }); };
+        img.src = dataUrl;
+      });
+    }
+    function fitToArea(srcW, srcH, maxW, maxH) {
+      var scale = Math.min(maxW / srcW, maxH / srcH);
+      return { width: Math.round(srcW * scale), height: Math.round(srcH * scale) };
+    }
+
+    /* 先頭フロア画像を A2:AZ28 に縦横比維持で挿入 */
     var floorSrc0 = null;
     for (var fi = 0; fi < floorSlotCount; fi++) {
       if (floorLoadedArr[fi]) { floorSrc0 = getFloorImageSrc(fi); break; }
@@ -1229,28 +1248,38 @@ async function saveAsExcel(d, base) {
       var fExtM   = floorSrc0.match(/^data:image\/([a-z]+)/);
       var fExt    = fExtM ? fExtM[1] : 'png';
       if (fExt === 'jpg') fExt = 'jpeg';
-      ws2.addImage(wb.addImage({ base64: fBase64, extension: fExt }), 'A2:AZ28');
+      var fNat  = await getImgNaturalSize(floorSrc0);
+      var fFit  = fitToArea(fNat.w, fNat.h, 606, 513); /* Sheet2 A2:AZ28 のpx概算 */
+      ws2.addImage(
+        wb.addImage({ base64: fBase64, extension: fExt }),
+        { tl: { col: 0, row: 1 }, ext: fFit, editAs: 'oneCell' }
+      );
     }
 
-    /* ===== Sheet3: 写真（テンプレート8枠 ①〜⑧） ===== */
+    /* ===== Sheet3: 写真（テンプレート8枠 ①〜⑧）縦横比維持 ===== */
     var ws3 = wb.getWorksheet('写真');
     var photos = collectPhotos();
+    /* tl: 0-indexed セル位置、cap: キャプションセルアドレス */
     var photoSlots = [
-      { img: 'A2:Z20',    cap: 'G21'  },
-      { img: 'AA2:AZ20',  cap: 'AG21' },
-      { img: 'A22:Z40',   cap: 'G41'  },
-      { img: 'AA22:AZ40', cap: 'AG41' },
-      { img: 'A42:Z60',   cap: 'G61'  },
-      { img: 'AA42:AZ60', cap: 'AG61' },
-      { img: 'A62:Z76',   cap: 'G77'  },
-      { img: 'AA62:AZ76', cap: 'AG77' },
+      { tl: { col: 0,  row: 1  }, cap: 'G21'  },
+      { tl: { col: 26, row: 1  }, cap: 'AG21' },
+      { tl: { col: 0,  row: 21 }, cap: 'G41'  },
+      { tl: { col: 26, row: 21 }, cap: 'AG41' },
+      { tl: { col: 0,  row: 41 }, cap: 'G61'  },
+      { tl: { col: 26, row: 41 }, cap: 'AG61' },
+      { tl: { col: 0,  row: 61 }, cap: 'G77'  },
+      { tl: { col: 26, row: 61 }, cap: 'AG77' },
     ];
+    /* Sheet3スロットのpx概算: 幅226px×高さ285px */
+    var PHOTO_MAX_W = 226, PHOTO_MAX_H = 285;
     for (var pi = 0; pi < Math.min(photos.length, 8); pi++) {
       var ph   = photos[pi];
       var slot = photoSlots[pi];
+      var pNat = await getImgNaturalSize(ph.src);
+      var pFit = fitToArea(pNat.w, pNat.h, PHOTO_MAX_W, PHOTO_MAX_H);
       ws3.addImage(
         wb.addImage({ base64: ph.src.split(',')[1], extension: 'jpeg' }),
-        slot.img
+        { tl: slot.tl, ext: pFit, editAs: 'oneCell' }
       );
       /* 丸数字・先頭数字を除去してキャプションを書き込む */
       var capName = ph.name.replace(/^[①②③④⑤⑥⑦⑧⑨⑩\d]+[.．、。\s]*/, '').trim();
