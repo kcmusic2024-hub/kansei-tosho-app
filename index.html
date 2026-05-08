@@ -1484,50 +1484,43 @@ function buildDocPage() {
   p1 += '</div>'; /* grid end */
   pages += '<div class="doc-page">' + p1 + '</div>';
 
-  /* ===== ページ2以降：フロア概略図（1枚ずつ） ===== */
+  /* ===== ページ2：フロア概略図（全画像を1ページにまとめる） ===== */
+  var p2 = '<div class="doc-section-title" style="margin-bottom:12px;">フロア概略図</div>';
   if (floorImgs.length > 0) {
-    floorImgs.forEach(function (src, fi) {
-      var label = floorImgs.length > 1 ? '（' + (fi + 1) + '枚目）' : '';
-      var p = '';
-      p += '<div class="doc-section-title" style="margin-bottom:12px;">フロア概略図' + label + '</div>';
-      p += '<div style="border:1px solid #ddd; border-radius:4px; overflow:hidden;">';
-      p += '<div class="doc-floor-header"><span>お客様名：' + (d.customer || '－') + '</span><span>拠点名：' + (d.branch || '－') + '</span></div>';
-      p += '<img src="' + src + '" class="doc-floor-img">';
-      p += '</div>';
-      pages += '<div class="doc-page">' + p + '</div>';
+    var fCols = floorImgs.length === 1 ? 1 : 2;
+    var fRows = Math.ceil(floorImgs.length / fCols);
+    var fImgMaxH = fRows <= 1 ? '600px' : fRows === 2 ? '278px' : 'auto';
+    p2 += '<div style="display:grid; grid-template-columns:repeat(' + fCols + ',1fr); gap:12px;">';
+    floorImgs.forEach(function(src, fi) {
+      p2 += '<div style="border:1px solid #ddd; border-radius:4px; overflow:hidden;">';
+      p2 += '<div class="doc-floor-header"><span>お客様名：' + (d.customer || '－') + '</span>';
+      if (floorImgs.length > 1) p2 += '<span>' + (fi + 1) + '枚目</span>';
+      p2 += '<span>拠点名：' + (d.branch || '－') + '</span></div>';
+      p2 += '<img src="' + src + '" style="width:100%;max-height:' + fImgMaxH + ';object-fit:contain;background:#fafafa;display:block;">';
+      p2 += '</div>';
     });
+    p2 += '</div>';
   } else {
-    pages += '<div class="doc-page">' +
-      '<div class="doc-section-title" style="margin-bottom:12px;">フロア概略図</div>' +
-      '<div style="background:#fafafa;border:1px solid #ddd;border-radius:4px;padding:40px;text-align:center;color:#bbb;font-size:0.85rem;">フロア概略図は未取込です</div>' +
-      '</div>';
+    p2 += '<div style="background:#fafafa;border:1px solid #ddd;border-radius:4px;padding:40px;text-align:center;color:#bbb;font-size:0.85rem;">フロア概略図は未取込です</div>';
   }
+  pages += '<div class="doc-page">' + p2 + '</div>';
 
-  /* ===== ページ3以降：現地写真（6枚/ページ、3×2） ===== */
+  /* ===== ページ3：現地写真（全写真を1ページに・4列グリッド） ===== */
+  /* 8枚デフォルト時は4×2に収まる。追加分はブラウザが自動改ページ */
+  var p3 = '<div class="doc-section-title" style="margin-bottom:10px;">現地写真</div>';
   if (photos.length > 0) {
-    var PER_PAGE = 6;
-    for (var pi = 0; pi < photos.length; pi += PER_PAGE) {
-      var chunk = photos.slice(pi, pi + PER_PAGE);
-      var pageNum = Math.floor(pi / PER_PAGE) + 1;
-      var totalPages = Math.ceil(photos.length / PER_PAGE);
-      var label2 = totalPages > 1 ? '（' + pageNum + '/' + totalPages + 'ページ）' : '';
-      var p = '<div class="doc-section-title" style="margin-bottom:12px;">現地写真 ' + label2 + '</div>';
-      p += '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px;">';
-      chunk.forEach(function (ph) {
-        p += '<div class="doc-photo-item">';
-        p += '<img src="' + ph.src + '" class="doc-photo-img">';
-        p += '<div class="doc-photo-name">' + ph.name + '</div>';
-        p += '</div>';
-      });
-      p += '</div>';
-      pages += '<div class="doc-page">' + p + '</div>';
-    }
+    p3 += '<div style="display:grid; grid-template-columns:repeat(4,1fr); gap:8px;">';
+    photos.forEach(function(ph) {
+      p3 += '<div class="doc-photo-item">';
+      p3 += '<img src="' + ph.src + '" class="doc-photo-img">';
+      p3 += '<div class="doc-photo-name">' + ph.name + '</div>';
+      p3 += '</div>';
+    });
+    p3 += '</div>';
   } else {
-    pages += '<div class="doc-page">' +
-      '<div class="doc-section-title" style="margin-bottom:12px;">現地写真</div>' +
-      '<div style="background:#fafafa;border:1px solid #ddd;border-radius:4px;padding:40px;text-align:center;color:#bbb;font-size:0.85rem;">写真は未撮影です</div>' +
-      '</div>';
+    p3 += '<div style="background:#fafafa;border:1px solid #ddd;border-radius:4px;padding:40px;text-align:center;color:#bbb;font-size:0.85rem;">写真は未撮影です</div>';
   }
+  pages += '<div class="doc-page">' + p3 + '</div>';
 
   document.getElementById('docPage').innerHTML = pages;
 }
