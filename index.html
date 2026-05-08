@@ -202,11 +202,23 @@
       display: flex; align-items: center; justify-content: center; overflow: hidden; transition: background 0.2s;
     }
     .photo-drop:hover { background: var(--red-light); }
-    .photo-drop input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+    .photo-drop input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; z-index: 3; }
     .photo-drop-hint { text-align: center; color: #bbb; font-size: 0.72rem; pointer-events: none; z-index: 1; }
     .photo-drop-hint .plus { font-size: 1.4rem; display: block; margin-bottom: 2px; color: #ccc; }
     .photo-drop-hint.hidden { display: none; }
-    .photo-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; }
+    .photo-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; z-index: 2; }
+    .photo-replace-hint {
+      position: absolute; inset: 0; z-index: 2; pointer-events: none;
+      display: flex; align-items: flex-end; justify-content: center; padding-bottom: 6px;
+    }
+    .photo-replace-hint span {
+      background: rgba(0,0,0,0.45); color: #fff; font-size: 0.65rem;
+      padding: 2px 8px; border-radius: 10px; opacity: 0; transition: opacity 0.2s;
+    }
+    .photo-drop:hover .photo-replace-hint span { opacity: 1; }
+    .photo-counter-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .photo-counter { font-size: 0.8rem; color: #888; margin-bottom: 0; }
+    .photo-counter span { color: var(--red); font-weight: bold; }
     .photo-label-row { display: flex; align-items: center; gap: 6px; padding: 8px 10px; background: #fafafa; }
     .photo-name-text { font-size: 0.78rem; color: #444; font-weight: 500; }
     .photo-num { font-size: 0.75rem; color: #999; font-weight: bold; min-width: 20px; flex-shrink: 0; }
@@ -290,9 +302,10 @@
     /* 完成図書プレビューコンテンツ */
     .doc-preview { padding: 24px; background: #f2f3f5; }
     .doc-page {
-      background: white; max-width: 720px; margin: 0 auto;
-      padding: 32px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); border-radius: 4px;
+      background: white; max-width: 1020px; margin: 0 auto;
+      padding: 32px 40px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); border-radius: 4px;
     }
+    .doc-page + .doc-page { margin-top: 24px; }
     .doc-title {
       font-size: 1.2rem; font-weight: bold; color: var(--red);
       text-align: center; border-bottom: 2px solid var(--red);
@@ -317,18 +330,21 @@
       display: flex; justify-content: space-between;
       padding: 6px 12px; font-size: 0.78rem; font-weight: bold;
     }
-    .doc-photo-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .doc-photo-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
     .doc-photo-item { border: 1px solid #ddd; border-radius: 4px; overflow: hidden; }
     .doc-photo-img { width: 100%; aspect-ratio: 4/3; object-fit: contain; background: #fafafa; display: block; }
     .doc-photo-name { font-size: 0.68rem; text-align: center; padding: 4px; background: #fdf2f2; color: var(--red); }
     .doc-photo-empty { width: 100%; aspect-ratio: 4/3; background: #fafafa; display: flex; align-items: center; justify-content: center; color: #ccc; font-size: 0.7rem; }
 
     @media print {
+      @page { size: A4 landscape; margin: 10mm; }
       .app-header, .tab-nav, .progress-bar-wrap, .modal-header { display: none !important; }
       .tab-pane { display: none !important; }
       .modal-overlay { position: static !important; background: none !important; display: block !important; }
       .modal-box { box-shadow: none !important; }
-      .doc-page { box-shadow: none !important; }
+      .doc-preview { padding: 0 !important; background: none !important; }
+      .doc-page { box-shadow: none !important; border-radius: 0 !important; max-width: 100% !important; padding: 0 !important; margin: 0 !important; }
+      .doc-page + .doc-page { margin-top: 0 !important; page-break-before: always; }
     }
     @media (max-width: 480px) {
       .tab-btn { font-size: 0.72rem; padding: 10px 8px; }
@@ -348,7 +364,7 @@
     <div class="header-title">完成図書作成アプリ</div>
   </div>
   <div style="display:flex;align-items:center;gap:6px;">
-    <div class="header-ver">Ver.1.0</div>
+    <div class="header-ver">Ver.1.1</div>
   </div>
 </header>
 
@@ -544,7 +560,10 @@
   <div class="page-inner">
     <div class="card">
       <div class="card-title">現地写真（基本8枚）</div>
-      <div class="photo-counter"><span id="photoCount">0</span> / <span id="photoTotal">8</span> 枚</div>
+      <div class="photo-counter-row">
+        <div class="photo-counter"><span id="photoCount">0</span> / <span id="photoTotal">8</span> 枚</div>
+        <button class="btn btn-outline" onclick="clearAllPhotos()" style="padding:6px 14px; font-size:0.8rem;">🗑 クリア</button>
+      </div>
       <div class="photo-grid" id="photoGrid"></div>
       <button class="btn btn-add-photo" onclick="addPhotoSlot()">＋ 写真項目を追加</button>
     </div>
@@ -622,7 +641,7 @@
       </div>
     </div>
     <div class="doc-preview">
-      <div class="doc-page" id="docPage">
+      <div id="docPage">
         <!-- JS で生成 -->
       </div>
     </div>
@@ -872,19 +891,24 @@ function loadFloorN(evt, idx) {
 }
 
 function clearFloorN(idx) {
-  var origImg = document.getElementById('floorOriginalImg' + idx);
-  origImg.src = '';
-  origImg.style.display = 'none';
-  document.getElementById('dropZone' + idx).style.display = '';
-  var canvas = document.getElementById('floorCanvas' + idx);
-  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-  canvas.style.display = 'none';
-  document.getElementById('seishoLoading' + idx).classList.remove('active');
-  document.getElementById('seishoEmpty'   + idx).style.display = '';
-  document.getElementById('seishoError'   + idx).style.display = 'none';
-  document.getElementById('floorFileInput' + idx).value = '';
   floorLoadedArr[idx] = false;
   floorLoaded = floorLoadedArr[0];
+  if (idx > 0) {
+    var wrapper = document.getElementById('floorSlotWrapper' + idx);
+    if (wrapper) wrapper.remove();
+    return;
+  }
+  var origImg = document.getElementById('floorOriginalImg0');
+  origImg.src = '';
+  origImg.style.display = 'none';
+  document.getElementById('dropZone0').style.display = '';
+  var canvas = document.getElementById('floorCanvas0');
+  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+  canvas.style.display = 'none';
+  document.getElementById('seishoLoading0').classList.remove('active');
+  document.getElementById('seishoEmpty0').style.display = '';
+  document.getElementById('seishoError0').style.display = 'none';
+  document.getElementById('floorFileInput0').value = '';
 }
 
 function addFloorSlot() {
@@ -936,9 +960,12 @@ function addFloorSlot() {
       '</div>' +
     '</div>';
 
-  var container = document.getElementById('extraFloorSlots');
-  container.appendChild(dropCard);
-  container.appendChild(previewCard);
+  var wrapper = document.createElement('div');
+  wrapper.id = 'floorSlotWrapper' + idx;
+  wrapper.appendChild(dropCard);
+  wrapper.appendChild(previewCard);
+
+  document.getElementById('extraFloorSlots').appendChild(wrapper);
 
   /* ファイル選択イベントをバインド */
   document.getElementById('floorFileInput' + idx).addEventListener('change', function (e) { loadFloorN(e, idx); });
@@ -993,8 +1020,13 @@ function makePhotoCard(num) {
   hint.className = 'photo-drop-hint';
   hint.innerHTML = '<span class="plus">+</span>タップして追加';
 
+  var replaceHint = document.createElement('div');
+  replaceHint.className = 'photo-replace-hint';
+  replaceHint.innerHTML = '<span>クリックで変更</span>';
+
   drop.appendChild(inp);
   drop.appendChild(hint);
+  drop.appendChild(replaceHint);
 
   var labelRow = document.createElement('div');
   labelRow.className = 'photo-label-row';
@@ -1039,6 +1071,19 @@ function makePhotoCard(num) {
 function updatePhotoCount() {
   document.getElementById('photoCount').textContent = photoUploaded;
   document.getElementById('photoTotal').textContent = totalSlots;
+}
+
+function clearAllPhotos() {
+  document.querySelectorAll('#photoGrid .photo-card').forEach(function (card) {
+    var img = card.querySelector('img.photo-img');
+    if (img) { img.remove(); }
+    var hint = card.querySelector('.photo-drop-hint');
+    if (hint) hint.classList.remove('hidden');
+    var inp = card.querySelector('input[type="file"]');
+    if (inp) inp.value = '';
+  });
+  photoUploaded = 0;
+  updatePhotoCount();
 }
 
 function addPhotoSlot() {
@@ -1330,15 +1375,17 @@ document.getElementById('previewModal').addEventListener('click', function (e) {
 
 function buildDocPage() {
   var d = getData();
+
   /* 複数フロアスロット画像収集 */
   var floorImgs = [];
   for (var fi = 0; fi < floorSlotCount; fi++) {
     if (floorLoadedArr[fi]) {
-      floorImgs.push(document.getElementById('floorCanvas' + fi).toDataURL('image/png'));
+      var el = document.getElementById('floorCanvas' + fi);
+      if (el) floorImgs.push(document.getElementById('floorCanvas' + fi).toDataURL('image/png'));
     }
   }
-  var floorImgSrc = floorImgs.length > 0 ? floorImgs[0] : null;
 
+  /* 現地写真収集（画像がある枠のみ） */
   var photos = [];
   document.querySelectorAll('#photoGrid .photo-card').forEach(function (card) {
     var img     = card.querySelector('img.photo-img');
@@ -1346,69 +1393,94 @@ function buildDocPage() {
     var nameInp = card.querySelector('.photo-name-input');
     var num  = numEl   ? numEl.textContent.trim()  : '';
     var name = nameInp ? nameInp.value.trim() : '';
-    photos.push({ src: img ? img.src : null, name: name ? num + ' ' + name : num });
+    if (img && img.src && img.src.indexOf('data:') === 0) {
+      photos.push({ src: img.src, name: name ? num + ' ' + name : num });
+    }
   });
 
-  var html = '';
+  var pages = '';
 
-  /* タイトル */
-  html += '<div class="doc-title">完&nbsp;成&nbsp;図&nbsp;書</div>';
+  /* ===== ページ1：基本情報 + 電源情報 ===== */
+  var p1 = '';
+  p1 += '<div class="doc-title">完&nbsp;成&nbsp;図&nbsp;書</div>';
+  p1 += '<div style="display:grid; grid-template-columns:1fr 1fr; gap:24px;">';
 
-  /* 基本情報 */
-  html += '<div class="doc-section">';
-  html += '<div class="doc-section-title">基本情報</div>';
-  html += '<table class="doc-table">';
-  html += row2('お客様名', d.customer) + row2('拠点名', d.branch) +
-          row2('管理番号', d.mgmt)   + row2('実施日', d.date) + row2('実施担当者', d.staff) +
-          row2('入館時刻', d.entryTime || '—') + row2('退館時刻', d.exitTime || '—');
-  html += '</table></div>';
+  /* 基本情報（左列） */
+  p1 += '<div class="doc-section">';
+  p1 += '<div class="doc-section-title">基本情報</div>';
+  p1 += '<table class="doc-table">';
+  p1 += row2('お客様名', d.customer) + row2('拠点名', d.branch) +
+        row2('管理番号', d.mgmt)     + row2('実施日', d.date)   +
+        row2('実施担当者', d.staff)  +
+        row2('入館時刻', d.entryTime || '—') + row2('退館時刻', d.exitTime || '—');
+  p1 += '</table></div>';
 
-  /* 電源情報 */
-  html += '<div class="doc-section">';
-  html += '<div class="doc-section-title">電源情報</div>';
-  html += '<div class="doc-power-row">';
-  html += pcard('電源数', d.total) + pcard('必要電源数', d.required) +
-          pcard('使用した電源数', d.used) + pcard('空き電源数', d.free);
-  html += '</div>';
-  html += '<div style="margin-top:10px;"><table class="doc-table">';
-  html += row2('機器設置スペース', d.space);
-  if (d.ngreason) html += row2('設置不可理由', d.ngreason);
-  if (d.remarks)  html += row2('備考', d.remarks);
-  html += '</table></div></div>';
+  /* 電源情報（右列） */
+  p1 += '<div>';
+  p1 += '<div class="doc-section">';
+  p1 += '<div class="doc-section-title">電源情報</div>';
+  p1 += '<div class="doc-power-row">';
+  p1 += pcard('電源数', d.total) + pcard('必要電源数', d.required) +
+        pcard('使用した電源数', d.used) + pcard('空き電源数', d.free);
+  p1 += '</div></div>';
+  p1 += '<div class="doc-section" style="margin-top:16px;">';
+  p1 += '<div class="doc-section-title">機器設置スペース</div>';
+  p1 += '<table class="doc-table">';
+  p1 += row2('設置スペース', d.space);
+  if (d.ngreason) p1 += row2('設置不可理由', d.ngreason);
+  if (d.remarks)  p1 += row2('備考', d.remarks);
+  p1 += '</table></div>';
+  p1 += '</div>';
 
-  /* フロア概略図 */
-  html += '<div class="doc-section">';
-  html += '<div class="doc-section-title">フロア概略図</div>';
+  p1 += '</div>'; /* grid end */
+  pages += '<div class="doc-page">' + p1 + '</div>';
+
+  /* ===== ページ2以降：フロア概略図（1枚ずつ） ===== */
   if (floorImgs.length > 0) {
     floorImgs.forEach(function (src, fi) {
-      var label = floorImgs.length > 1 ? ('（' + (fi + 1) + '枚目）') : '';
-      html += '<div style="border:1px solid #ddd; border-radius:4px; overflow:hidden; margin-bottom:12px;">';
-      html += '<div class="doc-floor-header"><span>お客様名：' + (d.customer || '－') + label + '</span><span>拠点名：' + (d.branch || '－') + '</span></div>';
-      html += '<img src="' + src + '" class="doc-floor-img">';
-      html += '</div>';
+      var label = floorImgs.length > 1 ? '（' + (fi + 1) + '枚目）' : '';
+      var p = '';
+      p += '<div class="doc-section-title" style="margin-bottom:12px;">フロア概略図' + label + '</div>';
+      p += '<div style="border:1px solid #ddd; border-radius:4px; overflow:hidden;">';
+      p += '<div class="doc-floor-header"><span>お客様名：' + (d.customer || '－') + '</span><span>拠点名：' + (d.branch || '－') + '</span></div>';
+      p += '<img src="' + src + '" class="doc-floor-img">';
+      p += '</div>';
+      pages += '<div class="doc-page">' + p + '</div>';
     });
   } else {
-    html += '<div style="background:#fafafa;border:1px solid #ddd;border-radius:4px;padding:20px;text-align:center;color:#bbb;font-size:0.82rem;">フロア概略図は未取込です</div>';
+    pages += '<div class="doc-page">' +
+      '<div class="doc-section-title" style="margin-bottom:12px;">フロア概略図</div>' +
+      '<div style="background:#fafafa;border:1px solid #ddd;border-radius:4px;padding:40px;text-align:center;color:#bbb;font-size:0.85rem;">フロア概略図は未取込です</div>' +
+      '</div>';
   }
-  html += '</div>';
 
-  /* 現地写真 */
-  html += '<div class="doc-section">';
-  html += '<div class="doc-section-title">現地写真（' + d.photos + '枚）</div>';
-  html += '<div class="doc-photo-grid">';
-  photos.forEach(function (p) {
-    html += '<div class="doc-photo-item">';
-    if (p.src) {
-      html += '<img src="' + p.src + '" class="doc-photo-img">';
-    } else {
-      html += '<div class="doc-photo-empty">未撮影</div>';
+  /* ===== ページ3以降：現地写真（6枚/ページ、3×2） ===== */
+  if (photos.length > 0) {
+    var PER_PAGE = 6;
+    for (var pi = 0; pi < photos.length; pi += PER_PAGE) {
+      var chunk = photos.slice(pi, pi + PER_PAGE);
+      var pageNum = Math.floor(pi / PER_PAGE) + 1;
+      var totalPages = Math.ceil(photos.length / PER_PAGE);
+      var label2 = totalPages > 1 ? '（' + pageNum + '/' + totalPages + 'ページ）' : '';
+      var p = '<div class="doc-section-title" style="margin-bottom:12px;">現地写真 ' + label2 + '</div>';
+      p += '<div style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px;">';
+      chunk.forEach(function (ph) {
+        p += '<div class="doc-photo-item">';
+        p += '<img src="' + ph.src + '" class="doc-photo-img">';
+        p += '<div class="doc-photo-name">' + ph.name + '</div>';
+        p += '</div>';
+      });
+      p += '</div>';
+      pages += '<div class="doc-page">' + p + '</div>';
     }
-    html += '<div class="doc-photo-name">' + p.name + '</div>';
-    html += '</div>';
-  });
-  html += '</div></div>';
+  } else {
+    pages += '<div class="doc-page">' +
+      '<div class="doc-section-title" style="margin-bottom:12px;">現地写真</div>' +
+      '<div style="background:#fafafa;border:1px solid #ddd;border-radius:4px;padding:40px;text-align:center;color:#bbb;font-size:0.85rem;">写真は未撮影です</div>' +
+      '</div>';
+  }
 
-  document.getElementById('docPage').innerHTML = html;
+  document.getElementById('docPage').innerHTML = pages;
 }
 
 function row2(label, val) {
