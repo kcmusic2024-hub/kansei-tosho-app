@@ -1194,9 +1194,9 @@ async function saveAsExcel(d, base) {
     ws1.getCell('H12').value  = d.staff;
     ws1.getCell('AN12').value = d.exitTime  || '';
 
-    /* 電源情報（黄色セルに数値、白セルに計算値） */
-    ws1.getCell('E16').value  = d.total    !== '' ? Number(d.total)    : '';
-    ws1.getCell('Q16').value  = d.required !== '' ? Number(d.required) : '';
+    /* 電源情報（ver1テンプレートのセル位置） */
+    ws1.getCell('K16').value  = d.total    !== '' ? Number(d.total)    : '';
+    ws1.getCell('AB16').value = d.required !== '' ? Number(d.required) : '';
     ws1.getCell('AQ16').value = d.free     !== '' ? Number(d.free)     : '';
     ws1.getCell('AQ17').value = d.used     !== '' ? Number(d.used)     : '';
 
@@ -1252,7 +1252,9 @@ async function saveAsExcel(d, base) {
         wb.addImage({ base64: ph.src.split(',')[1], extension: 'jpeg' }),
         slot.img
       );
-      ws3.getCell(slot.cap).value = ph.name;
+      /* 丸数字・先頭数字を除去してキャプションを書き込む */
+      var capName = ph.name.replace(/^[①②③④⑤⑥⑦⑧⑨⑩\d]+[.．、。\s]*/, '').trim();
+      ws3.getCell(slot.cap).value = capName;
     }
 
     /* ダウンロード */
