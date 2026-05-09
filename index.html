@@ -1169,6 +1169,21 @@ function saveData() {
   else if (currentFmt === 'excel') saveAsExcel(d, base);
 }
 
+/* 画像の実寸法を取得（アスペクト比計算用） */
+function getImgNaturalSize(dataUrl) {
+  return new Promise(function(resolve) {
+    var img = new Image();
+    img.onload  = function() { resolve({ w: img.naturalWidth, h: img.naturalHeight }); };
+    img.onerror = function() { resolve({ w: 800, h: 600 }); };
+    img.src = dataUrl;
+  });
+}
+/* アスペクト比を維持して最大領域にフィットするpxサイズを返す */
+function fitToArea(srcW, srcH, maxW, maxH) {
+  var scale = Math.min(maxW / srcW, maxH / srcH);
+  return { width: Math.round(srcW * scale), height: Math.round(srcH * scale) };
+}
+
 /* ---------- Excel 保存（テンプレート形式） ---------- */
 async function saveAsExcel(d, base) {
   if (typeof ExcelJS === 'undefined') {
@@ -1182,10 +1197,10 @@ async function saveAsExcel(d, base) {
     var wb = new ExcelJS.Workbook();
     await wb.xlsx.load(await resp.arrayBuffer());
 
-    /* 名前付き範囲クリア（ExcelJSがテンプレートの定義名を壊すバグの回避） */
-    if (wb.model && Array.isArray(wb.model.definedNames)) {
-      wb.model.definedNames.length = 0;
-    }
+    /* 名前付き範囲クリア（ExcelJSがワークブックの定義名を壊すバグの回避）
+       wb.definedNames.model と wb.model.definedNames の両方をリセットする */
+    try { if (wb.definedNames) wb.definedNames.model = []; } catch(e) {}
+    try { if (wb.model)        wb.model.definedNames  = []; } catch(e) {}
 
     /* ===== Sheet1: 完了報告書 ===== */
     var ws1 = wb.getWorksheet('完了報告書');
@@ -1200,10 +1215,10 @@ async function saveAsExcel(d, base) {
     ws1.getCell('AN12').value = d.exitTime  || '';
 
     /* 電源情報（ver1テンプレートのセル位置） */
-    ws1.getCell('K16').value  = d.total    !== '' ? Number(d.total)    : '';
-    ws1.getCell('AB16').value = d.required !== '' ? Number(d.required) : '';
-    ws1.getCell('AQ16').value = d.free     !== '' ? Number(d.free)     : '';
-    ws1.getCell('AQ17').value = d.used     !== '' ? Number(d.used)     : '';
+    ws1.getCell('K16').value  = Number(d.total)    || 0;
+    ws1.getCell('AB16').value = Number(d.required) || 0;
+    ws1.getCell('AQ16').value = Number(d.free)     || 0;
+    ws1.getCell('AQ17').value = Number(d.used)     || 0;
 
     /* 機器設置スペース（□ / ■ の切り替え） */
     if (d.space === '設置可能') {
@@ -1224,21 +1239,8 @@ async function saveAsExcel(d, base) {
     var ws2 = wb.getWorksheet('フロア概略図');
     ws2.getCell('A1').value = (d.customer || '—') + '　' + (d.branch || '—');
 
-    /* 画像の実寸法を取得してアスペクト比を維持するヘルパー */
-    function getImgNaturalSize(dataUrl) {
-      return new Promise(function(resolve) {
-        var img = new Image();
-        img.onload = function() { resolve({ w: img.naturalWidth, h: img.naturalHeight }); };
-        img.onerror = function() { resolve({ w: 800, h: 600 }); };
-        img.src = dataUrl;
-      });
-    }
-    function fitToArea(srcW, srcH, maxW, maxH) {
-      var scale = Math.min(maxW / srcW, maxH / srcH);
-      return { width: Math.round(srcW * scale), height: Math.round(srcH * scale) };
-    }
-
-    /* 先頭フロア画像を A2:AZ28 に縦横比維持で挿入 */
+    /* 先頭フロア画像を A2:AZ28 に縦横比維持で挿入
+       Sheet2: 52列×1.63ch×7px/ch=606px、27行×14.25pt×4/3px/pt=513px */
     var floorSrc0 = null;
     for (var fi = 0; fi < floorSlotCount; fi++) {
       if (floorLoadedArr[fi]) { floorSrc0 = getFloorImageSrc(fi); break; }
@@ -1248,35 +1250,37 @@ async function saveAsExcel(d, base) {
       var fExtM   = floorSrc0.match(/^data:image\/([a-z]+)/);
       var fExt    = fExtM ? fExtM[1] : 'png';
       if (fExt === 'jpg') fExt = 'jpeg';
-      var fNat  = await getImgNaturalSize(floorSrc0);
-      var fFit  = fitToArea(fNat.w, fNat.h, 606, 513); /* Sheet2 A2:AZ28 のpx概算 */
+      if (fExt !== 'png' && fExt !== 'jpeg' && fExt !== 'gif') fExt = 'jpeg';
+      var fNat = await getImgNaturalSize(floorSrc0);
+      var fFit = fitToArea(fNat.w, fNat.h, 606, 513);
       ws2.addImage(
         wb.addImage({ base64: fBase64, extension: fExt }),
         { tl: { col: 0, row: 1 }, ext: fFit, editAs: 'oneCell' }
       );
     }
 
-    /* ===== Sheet3: 写真（テンプレート8枠 ①〜⑧）縦横比維持 ===== */
+    /* ===== Sheet3: 写真（テンプレート8枠 ①〜⑧）縦横比維持 =====
+       tl: 0-indexed セル位置、cap: キャプションセルアドレス
+       maxW: 26列×1.25ch×7px=226px
+       maxH: ①〜⑥は19行×11.25pt×4/3=285px、⑦⑧は15行×11.25pt×4/3=225px */
     var ws3 = wb.getWorksheet('写真');
     var photos = collectPhotos();
-    /* tl: 0-indexed セル位置、cap: キャプションセルアドレス */
     var photoSlots = [
-      { tl: { col: 0,  row: 1  }, cap: 'G21'  },
-      { tl: { col: 26, row: 1  }, cap: 'AG21' },
-      { tl: { col: 0,  row: 21 }, cap: 'G41'  },
-      { tl: { col: 26, row: 21 }, cap: 'AG41' },
-      { tl: { col: 0,  row: 41 }, cap: 'G61'  },
-      { tl: { col: 26, row: 41 }, cap: 'AG61' },
-      { tl: { col: 0,  row: 61 }, cap: 'G77'  },
-      { tl: { col: 26, row: 61 }, cap: 'AG77' },
+      { tl: { col: 0,  row: 1  }, cap: 'G21',  maxH: 285 },
+      { tl: { col: 26, row: 1  }, cap: 'AG21', maxH: 285 },
+      { tl: { col: 0,  row: 21 }, cap: 'G41',  maxH: 285 },
+      { tl: { col: 26, row: 21 }, cap: 'AG41', maxH: 285 },
+      { tl: { col: 0,  row: 41 }, cap: 'G61',  maxH: 285 },
+      { tl: { col: 26, row: 41 }, cap: 'AG61', maxH: 285 },
+      { tl: { col: 0,  row: 61 }, cap: 'G77',  maxH: 225 },
+      { tl: { col: 26, row: 61 }, cap: 'AG77', maxH: 225 },
     ];
-    /* Sheet3スロットのpx概算: 幅226px×高さ285px */
-    var PHOTO_MAX_W = 226, PHOTO_MAX_H = 285;
+    var PHOTO_MAX_W = 226;
     for (var pi = 0; pi < Math.min(photos.length, 8); pi++) {
       var ph   = photos[pi];
       var slot = photoSlots[pi];
       var pNat = await getImgNaturalSize(ph.src);
-      var pFit = fitToArea(pNat.w, pNat.h, PHOTO_MAX_W, PHOTO_MAX_H);
+      var pFit = fitToArea(pNat.w, pNat.h, PHOTO_MAX_W, slot.maxH);
       ws3.addImage(
         wb.addImage({ base64: ph.src.split(',')[1], extension: 'jpeg' }),
         { tl: slot.tl, ext: pFit, editAs: 'oneCell' }
